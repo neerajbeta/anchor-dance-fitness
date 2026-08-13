@@ -1,7 +1,9 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 
 // Edge-safe (jose only, no Node APIs) so it can run inside middleware.
-export const SESSION_COOKIE = "af_session";
+export const SESSION_COOKIE = "af_session"; // admin sessions only
+export const USER_SESSION_COOKIE = "af_user_session"; // student/user sessions — separate
+// cookie so a logged-in student is never mistaken for an admin by middleware.
 const MAX_AGE_SECONDS = 60 * 60 * 8; // 8 hours
 
 const secret = new TextEncoder().encode(
