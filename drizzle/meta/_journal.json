@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1785140848962,
+      "tag": "0000_little_juggernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785143118995,
+      "tag": "0001_clammy_hemingway",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785311249617,
+      "tag": "0002_cold_alice",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785748022257,
+      "tag": "0003_sparkling_eternals",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785995500282,
+      "tag": "0004_normal_sunfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786007836098,
+      "tag": "0005_green_micromacro",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786368578421,
+      "tag": "0006_panoramic_the_watchers",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786369227721,
+      "tag": "0007_clammy_jack_murdock",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786439773492,
+      "tag": "0008_natural_pyro",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786441264513,
+      "tag": "0009_wild_puff_adder",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786612589219,
+      "tag": "0010_calm_lockheed",
+      "breakpoints": true
+    }
+  ]
+}
