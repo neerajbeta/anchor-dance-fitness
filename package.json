@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Anchor Fitness Registration & Booking Portal — Next.js app",
+  "engines": {
+    "node": ">=18.17.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
