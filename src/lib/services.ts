@@ -22,6 +22,24 @@ export class DbNotConfiguredError extends Error {
 
 export class ConflictError extends Error {}
 
+/**
+ * Creates or refreshes a student user from a Google login. Email is the
+ * natural key (Google guarantees verified, unique emails per account).
+ */
+export async function upsertOAuthUser(input: { email: string; name: string }) {
+  const d = requireDb();
+  const email = input.email.trim().toLowerCase();
+  const [row] = await d
+    .insert(users)
+    .values({ name: input.name, email, role: "student" })
+    .onConflictDoUpdate({
+      target: users.email,
+      set: { name: input.name },
+    })
+    .returning();
+  return row;
+}
+
 function requireDb() {
   if (!db) throw new DbNotConfiguredError();
   return db;

@@ -1,12 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { LogoMark, LogoWordmark } from "@/components/Logo";
 import { GoogleButton } from "@/components/GoogleButton";
 
+const GOOGLE_ERRORS: Record<string, string> = {
+  google_not_configured: "Google sign-in isn't set up yet — use email instead.",
+  google_denied: "Google sign-in was cancelled.",
+  google_auth_failed: "Google sign-in failed. Please try again.",
+  google_email_unverified: "That Google account's email isn't verified.",
+  database_not_configured: "Sign-in is temporarily unavailable. Please try again shortly.",
+};
+
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const searchParams = useSearchParams();
+  const errorCode = searchParams.get("error");
+  const errorMessage = errorCode ? GOOGLE_ERRORS[errorCode] ?? "Sign-in failed. Please try again." : null;
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
@@ -49,6 +69,12 @@ export default function LoginPage() {
         <div className="mb-6">
           <LogoWordmark size={34} dark />
         </div>
+
+        {errorMessage && (
+          <div className="mb-4 rounded-lg border-[1.5px] border-danger/40 bg-danger/5 px-3.5 py-2.5 text-[13px] font-medium text-danger">
+            {errorMessage}
+          </div>
+        )}
 
         {mode === "login" ? (
           <div className="animate-scale-in">
