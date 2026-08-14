@@ -59,7 +59,7 @@ export default function RegisterPage() {
       </header>
 
       <main className="mx-auto w-full max-w-2xl px-6 py-8 anim-fade">
-        <Stepper steps={["Your Details", "Choose Plan", "Payment"]} current={0} />
+        <Stepper steps={["Your Details", "Book a Class", "Choose Plan & Pay"]} current={0} />
 
         <form className="card" onSubmit={submit}>
           <div className="card-title">Tell us about yourself</div>
