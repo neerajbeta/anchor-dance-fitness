@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { LogoWordmark } from "@/components/Logo";
 import { StudioCalendar } from "@/components/StudioCalendar";
 import { LocationSelect } from "@/components/LocationSelect";
@@ -10,9 +10,28 @@ import { saveLastBooking } from "@/lib/bookingDraft";
 
 const RATE = 600; // SEK per hour
 
+// Full 24h, 30-min steps: 00:00 → 23:30
+const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => {
+  const m = i * 30;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+});
+
+// "6:00 AM" → "06:00", to match taken hours from STUDIO_SLOTS against TIME_SLOTS.
+function to24h(t: string) {
+  const [time, ampm] = t.split(" ");
+  let [h, m] = time.split(":").map(Number);
+  if (ampm === "PM" && h !== 12) h += 12;
+  if (ampm === "AM" && h === 12) h = 0;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+const TAKEN_HOURS = new Set(
+  STUDIO_SLOTS.filter((s) => s.state === "taken").map((s) => to24h(s.time))
+);
+
 export default function BookStudioPage() {
   const router = useRouter();
-  const [slots, setSlots] = useState<Record<number, boolean>>({ 5: true, 6: true });
+  const [startT, setStartT] = useState("11:00");
+  const [hours, setHours] = useState(2);
   const [purpose, setPurpose] = useState("");
   const [food, setFood] = useState(false);
   const [location, setLocation] = useState("Stockholm");
@@ -30,20 +49,11 @@ export default function BookStudioPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selected = useMemo(
-    () =>
-      STUDIO_SLOTS.map((s, i) => ({ ...s, i }))
-        .filter((s) => slots[s.i] && s.state !== "taken")
-        .sort((a, b) => a.i - b.i),
-    [slots]
-  );
-  const hours = selected.length;
+  // TIME_SLOTS is in 30-min steps, so 1 hour = 2 slots.
+  const endLabel = startT
+    ? TIME_SLOTS[(TIME_SLOTS.indexOf(startT) + hours * 2) % TIME_SLOTS.length] ?? "—"
+    : "—";
   const price = hours * RATE;
-  const startT = selected[0]?.time ?? "—";
-  const endLabel =
-    selected.length > 0
-      ? STUDIO_SLOTS[selected[selected.length - 1].i + 1]?.time ?? "10:00 PM"
-      : "—";
 
   const discountAmount = applied
     ? applied.type === "flat"
@@ -51,12 +61,7 @@ export default function BookStudioPage() {
       : Math.round((price * applied.percent) / 100)
     : 0;
   const total = price - discountAmount;
-  const ready = purpose !== "" && food && name.trim() !== "" && email.trim() !== "" && hours > 0;
-
-  function toggle(i: number) {
-    if (STUDIO_SLOTS[i].state === "taken") return;
-    setSlots((s) => ({ ...s, [i]: !s[i] }));
-  }
+  const ready = purpose !== "" && food && name.trim() !== "" && email.trim() !== "" && hours > 0 && startT !== "";
 
   async function applyCoupon() {
     if (!coupon.trim()) return;
@@ -158,48 +163,45 @@ export default function BookStudioPage() {
           {/* Right: slots + details */}
           <div className="flex flex-col gap-4">
             <div className="card">
-              <div className="card-title">⏰ Time Slots — Thu, 7 Aug 2025</div>
+              <div className="card-title">⏰ Time — Thu, 7 Aug 2025</div>
               <p className="mb-2 text-[13px] text-muted">
-                Tap to select hourly slots. Select multiple for longer sessions — price updates
-                automatically.
+                Pick a start time and duration — greyed-out hours are already taken by classes,
+                workshops, or existing bookings. Price updates automatically.
               </p>
-              <div className="grid grid-cols-4 gap-2">
-                {STUDIO_SLOTS.map((s, i) => {
-                  const isSel = slots[i] && s.state !== "taken";
-                  const taken = s.state === "taken";
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => toggle(i)}
-                      disabled={taken}
-                      className={`rounded-lg border-[1.5px] p-2 text-center text-xs font-semibold transition-all ${
-                        taken
-                          ? "cursor-not-allowed border-dashed border-line bg-cream/60 text-muted line-through"
-                          : isSel
-                          ? "border-brand-500 bg-brand-500 text-white"
-                          : "border-line bg-white hover:border-brand-400 hover:bg-brand-50"
-                      }`}
-                    >
-                      {s.time}
-                      <div
-                        className={`mt-0.5 text-[10px] font-normal ${
-                          isSel ? "text-white/80" : "text-muted"
-                        }`}
-                      >
-                        {isSel ? "Selected ✓" : s.label}
-                      </div>
-                    </button>
-                  );
-                })}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="field-label">Start Time *</label>
+                  <select className="field" value={startT} onChange={(e) => setStartT(e.target.value)}>
+                    <option value="" disabled>
+                      Select
+                    </option>
+                    {TIME_SLOTS.map((t) => (
+                      <option key={t} value={t} disabled={TAKEN_HOURS.has(t)}>
+                        {t}
+                        {TAKEN_HOURS.has(t) ? " — Taken" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="field-label">Duration *</label>
+                  <select className="field" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+                    {[1, 2, 3, 4, 5, 6].map((h) => (
+                      <option key={h} value={h}>
+                        {h} Hour{h > 1 ? "s" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Live summary */}
               <div className="mt-3.5 rounded-lg border-[1.5px] border-line bg-cream/60 p-3.5">
                 <div className="mb-2 text-xs font-bold text-ink">
                   ⚡ Selection Summary{" "}
-                  <span className="font-normal text-muted">(updates as you select slots)</span>
+                  <span className="font-normal text-muted">(updates as you choose time)</span>
                 </div>
-                <Row label="Start Time" value={startT} />
+                <Row label="Start Time" value={startT || "—"} />
                 <Row label="End Time" value={endLabel} />
                 <Row label="Duration" value={`${hours} Hour${hours === 1 ? "" : "s"}`} />
                 <Row label="Estimated Price" value={`SEK ${price.toLocaleString()}`} accent />
