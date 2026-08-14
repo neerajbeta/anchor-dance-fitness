@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
@@ -43,12 +44,14 @@ export async function upsertOAuthUser(input: { email: string; name: string }) {
 
 /**
  * Registers (or refreshes) a student profile from the "Your Details" signup
- * form. Email is the natural key, same as the Google OAuth path — this app
- * has no password auth yet, so signup logs the student straight in.
+ * form. Email is the natural key, same as the Google OAuth path. Signup
+ * logs the student straight in regardless; the password (bcrypt-hashed,
+ * same as admin auth) lets them come back and sign in with email+password.
  */
 export type RegisterStudentInput = {
   name: string;
   email: string;
+  password: string;
   dob?: string;
   gender?: string;
   phone?: string;
@@ -59,10 +62,12 @@ export type RegisterStudentInput = {
 export async function registerStudent(input: RegisterStudentInput) {
   const d = requireDb();
   const email = input.email.trim().toLowerCase();
+  const passwordHash = await bcrypt.hash(input.password, 10);
   const values = {
     name: input.name.trim(),
     email,
     role: "student" as const,
+    passwordHash,
     dob: input.dob || null,
     gender: input.gender || null,
     phone: input.phone || null,
@@ -76,6 +81,7 @@ export async function registerStudent(input: RegisterStudentInput) {
       target: users.email,
       set: {
         name: values.name,
+        passwordHash: values.passwordHash,
         dob: values.dob,
         gender: values.gender,
         phone: values.phone,
@@ -85,6 +91,21 @@ export async function registerStudent(input: RegisterStudentInput) {
     })
     .returning();
   return row;
+}
+
+/** Verifies a student's email + password. Returns the session payload, or null. */
+export async function verifyStudentCredentials(
+  email: string,
+  password: string
+): Promise<{ email: string; name: string; role: string } | null> {
+  const d = requireDb();
+  const normEmail = email.trim().toLowerCase();
+  if (!normEmail || !password) return null;
+  const rows = await d.select().from(users).where(and(eq(users.email, normEmail), eq(users.role, "student")));
+  const u = rows[0];
+  if (!u?.passwordHash) return null;
+  if (!(await bcrypt.compare(password, u.passwordHash))) return null;
+  return { email: u.email, name: u.name, role: u.role };
 }
 
 function requireDb() {

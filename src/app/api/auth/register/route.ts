@@ -13,9 +13,13 @@ export async function POST(req: NextRequest) {
     if (!b?.name?.trim() || !b?.email?.trim()) {
       return NextResponse.json({ error: "Full name and email are required" }, { status: 400 });
     }
+    if (!b?.password || String(b.password).length < 6) {
+      return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
+    }
     const user = await registerStudent({
       name: b.name,
       email: b.email,
+      password: b.password,
       dob: b.dob,
       gender: b.gender,
       phone: b.phone,
