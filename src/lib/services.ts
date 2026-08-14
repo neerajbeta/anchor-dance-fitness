@@ -41,6 +41,52 @@ export async function upsertOAuthUser(input: { email: string; name: string }) {
   return row;
 }
 
+/**
+ * Registers (or refreshes) a student profile from the "Your Details" signup
+ * form. Email is the natural key, same as the Google OAuth path — this app
+ * has no password auth yet, so signup logs the student straight in.
+ */
+export type RegisterStudentInput = {
+  name: string;
+  email: string;
+  dob?: string;
+  gender?: string;
+  phone?: string;
+  city?: string;
+  country?: string;
+};
+
+export async function registerStudent(input: RegisterStudentInput) {
+  const d = requireDb();
+  const email = input.email.trim().toLowerCase();
+  const values = {
+    name: input.name.trim(),
+    email,
+    role: "student" as const,
+    dob: input.dob || null,
+    gender: input.gender || null,
+    phone: input.phone || null,
+    city: input.city || null,
+    country: input.country || null,
+  };
+  const [row] = await d
+    .insert(users)
+    .values(values)
+    .onConflictDoUpdate({
+      target: users.email,
+      set: {
+        name: values.name,
+        dob: values.dob,
+        gender: values.gender,
+        phone: values.phone,
+        city: values.city,
+        country: values.country,
+      },
+    })
+    .returning();
+  return row;
+}
+
 function requireDb() {
   if (!db) throw new DbNotConfiguredError();
   return db;
