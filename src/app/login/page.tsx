@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { LogoMark, LogoWordmark } from "@/components/Logo";
 import { GoogleButton } from "@/components/GoogleButton";
 import { BookDemoButton } from "@/components/BookDemoButton";
@@ -24,9 +24,35 @@ export default function LoginPage() {
 }
 
 function LoginPageInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const errorCode = searchParams.get("error");
-  const errorMessage = errorCode ? GOOGLE_ERRORS[errorCode] ?? "Sign-in failed. Please try again." : null;
+  const googleErrorMessage = errorCode ? GOOGLE_ERRORS[errorCode] ?? "Sign-in failed. Please try again." : null;
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const errorMessage = loginError ?? googleErrorMessage;
+
+  async function signIn() {
+    setBusy(true);
+    setLoginError(null);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "Sign-in failed");
+      router.push("/portal");
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : "Sign-in failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
@@ -86,18 +112,35 @@ function LoginPageInner() {
           <Divider label="or sign in with email" />
           <div className="mb-3.5">
             <label className="field-label">Email</label>
-            <input className="field" type="email" placeholder="you@example.com" />
+            <input
+              className="field"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
           </div>
           <div className="mb-1">
             <label className="field-label">Password</label>
-            <input className="field" type="password" placeholder="••••••••" />
+            <input
+              className="field"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && signIn()}
+            />
           </div>
           <div className="mb-4 text-right">
             <a className="cursor-pointer text-xs font-semibold text-brand-600">Forgot password?</a>
           </div>
-          <Link href="/portal" className="btn btn-primary btn-block btn-lg mb-3">
-            Sign In
-          </Link>
+          <button
+            type="button"
+            onClick={signIn}
+            className={`btn btn-primary btn-block btn-lg mb-3 ${busy ? "is-disabled" : ""}`}
+          >
+            {busy ? "Signing in…" : "Sign In"}
+          </button>
           <p className="text-center text-[13px] text-slate">
             No account?{" "}
             <Link href="/register" className="font-semibold text-brand-600">

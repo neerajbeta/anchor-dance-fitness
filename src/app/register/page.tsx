@@ -13,9 +13,19 @@ export default function RegisterPage() {
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setBusy(true);
     setError(null);
     const fd = new FormData(e.currentTarget);
+    const password = String(fd.get("password") || "");
+    const confirmPassword = String(fd.get("confirmPassword") || "");
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+    setBusy(true);
     try {
       const res = await fetch("/api/auth/register", {
         method: "POST",
@@ -28,6 +38,7 @@ export default function RegisterPage() {
           city: fd.get("city"),
           country: fd.get("country"),
           email: fd.get("email"),
+          password,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -48,7 +59,7 @@ export default function RegisterPage() {
       </header>
 
       <main className="mx-auto w-full max-w-2xl px-6 py-8 anim-fade">
-        <Stepper steps={["Your Details", "Choose Plan", "Payment"]} current={0} />
+        <Stepper steps={["Your Details", "Book a Class", "Choose Plan & Pay"]} current={0} />
 
         <form className="card" onSubmit={submit}>
           <div className="card-title">Tell us about yourself</div>
@@ -85,6 +96,23 @@ export default function RegisterPage() {
           <div className="mt-3">
             <label className="field-label">Email Address *</label>
             <input name="email" className="field" type="email" placeholder="you@example.com" required />
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field
+              name="password"
+              label="Password *"
+              type="password"
+              placeholder="At least 6 characters"
+              required
+            />
+            <Field
+              name="confirmPassword"
+              label="Confirm Password *"
+              type="password"
+              placeholder="Re-enter password"
+              required
+            />
           </div>
 
           {error && (
