@@ -21,6 +21,7 @@ export const bookingStatusEnum = pgEnum("booking_status", ["pending", "confirmed
 export const planIntervalEnum = pgEnum("plan_interval", ["demo", "monthly", "quarterly", "biannual", "annual", "onetime"]);
 export const relationshipEnum = pgEnum("relationship", ["child", "spouse", "sibling", "other"]);
 export const discountScopeEnum = pgEnum("discount_scope", ["all", "category", "class"]);
+export const discountTypeEnum = pgEnum("discount_type", ["percent", "flat"]);
 
 // ───────────────────────── Users (§13, §15) ─────────────────────────
 export const users = pgTable("users", {
@@ -234,7 +235,9 @@ export const discounts = pgTable("discounts", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   code: text("code").notNull().unique(),
-  percent: integer("percent").notNull(), // 0–100
+  type: discountTypeEnum("type").notNull().default("percent"),
+  percent: integer("percent"), // 0–100, used when type='percent'
+  flatAmount: integer("flat_amount"), // SEK, used when type='flat'
   scope: discountScopeEnum("scope").notNull().default("all"),
   target: text("target"), // category name or class id (null for scope=all)
   active: boolean("active").notNull().default(true),

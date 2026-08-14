@@ -40,6 +40,7 @@ export function ClassesManager() {
   const [error, setError] = useState<string | null>(null);
   const [startT, setStartT] = useState("");
   const [endT, setEndT] = useState("");
+  const [editing, setEditing] = useState<ClassRow | null>(null);
 
   async function load() {
     const [c, l, cat] = await Promise.all([
@@ -75,8 +76,8 @@ export function ClassesManager() {
       return;
     }
     try {
-      const res = await fetch("/api/classes", {
-        method: "POST",
+      const res = await fetch(editing ? `/api/classes/${editing.id}` : "/api/classes", {
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: fd.get("name"),
@@ -99,6 +100,8 @@ export function ClassesManager() {
       form.reset();
       setStartT("");
       setEndT("");
+      setMode("offline");
+      setEditing(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
@@ -107,9 +110,26 @@ export function ClassesManager() {
     }
   }
 
+  function startEdit(c: ClassRow) {
+    setEditing(c);
+    setMode(c.mode);
+    setStartT(fmt(c.startTime));
+    setEndT(fmt(c.endTime));
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+    setMode("offline");
+    setStartT("");
+    setEndT("");
+    setError(null);
+  }
+
   async function remove(id: string) {
     if (!confirm("Delete this class?")) return;
     await fetch(`/api/classes/${id}`, { method: "DELETE" });
+    if (editing?.id === id) cancelEdit();
     load();
   }
 
@@ -149,9 +169,14 @@ export function ClassesManager() {
                 </div>
               )}
             </div>
-            <button className="btn btn-danger btn-sm" onClick={() => remove(c.id)}>
-              Delete
-            </button>
+            <div className="flex gap-2">
+              <button className="btn btn-ghost btn-sm" onClick={() => startEdit(c)}>
+                Edit
+              </button>
+              <button className="btn btn-danger btn-sm" onClick={() => remove(c.id)}>
+                Delete
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -166,12 +191,18 @@ export function ClassesManager() {
         </div>
       )}
 
-      <form onSubmit={add} className="rounded-lg border-[1.5px] border-line bg-cream/50 p-3.5">
-        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate">Add class</div>
+      <form
+        onSubmit={add}
+        key={editing?.id ?? "new"}
+        className="rounded-lg border-[1.5px] border-line bg-cream/50 p-3.5"
+      >
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate">
+          {editing ? "Edit class" : "Add class"}
+        </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <input name="name" className="field" placeholder="Class name *" required />
-          <input name="coach" className="field" placeholder="Coach" />
-          <select name="category" className="field" required defaultValue="">
+          <input name="name" className="field" placeholder="Class name *" defaultValue={editing?.name} required />
+          <input name="coach" className="field" placeholder="Coach" defaultValue={editing?.coach ?? ""} />
+          <select name="category" className="field" required defaultValue={editing?.category ?? ""}>
             <option value="" disabled>
               Category *
             </option>
@@ -179,7 +210,7 @@ export function ClassesManager() {
               <option key={c.id}>{c.name}</option>
             ))}
           </select>
-          <select name="level" className="field" required defaultValue="">
+          <select name="level" className="field" required defaultValue={editing?.level ?? ""}>
             <option value="" disabled>
               Level *
             </option>
@@ -187,7 +218,7 @@ export function ClassesManager() {
               <option key={l}>{l}</option>
             ))}
           </select>
-          <select name="location" className="field" required defaultValue="">
+          <select name="location" className="field" required defaultValue={editing?.location ?? ""}>
             <option value="" disabled>
               Location *
             </option>
@@ -195,17 +226,17 @@ export function ClassesManager() {
               <option key={l.id}>{l.label}</option>
             ))}
           </select>
-          <input name="days" className="field" placeholder="Days (e.g. Mon, Wed, Fri)" />
+          <input name="days" className="field" placeholder="Days (e.g. Mon, Wed, Fri)" defaultValue={editing?.days ?? ""} />
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div>
             <label className="field-label">Start Date *</label>
-            <input name="startDate" className="field" type="date" required />
+            <input name="startDate" className="field" type="date" defaultValue={editing?.startDate ?? ""} required />
           </div>
           <div>
             <label className="field-label">End Date *</label>
-            <input name="endDate" className="field" type="date" required />
+            <input name="endDate" className="field" type="date" defaultValue={editing?.endDate ?? ""} required />
           </div>
           <div>
             <label className="field-label">Start Time *</label>
@@ -250,11 +281,11 @@ export function ClassesManager() {
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div>
             <label className="field-label">Price (SEK)</label>
-            <input name="price" className="field" type="number" min={0} defaultValue={0} />
+            <input name="price" className="field" type="number" min={0} defaultValue={editing?.price ?? 0} />
           </div>
           <div>
             <label className="field-label">Capacity</label>
-            <input name="capacity" className="field" type="number" defaultValue={20} />
+            <input name="capacity" className="field" type="number" defaultValue={editing?.capacity ?? 20} />
           </div>
           <div>
             <label className="field-label">Mode</label>
@@ -276,11 +307,18 @@ export function ClassesManager() {
         </div>
 
         {error && <div className="mt-2 text-xs font-semibold text-danger">{error}</div>}
-        <button
-          className={`btn btn-primary btn-sm mt-3 ${busy || noCats || noLocs ? "is-disabled" : ""}`}
-        >
-          + Add Class
-        </button>
+        <div className="mt-3 flex gap-2">
+          <button
+            className={`btn btn-primary btn-sm ${busy || noCats || noLocs ? "is-disabled" : ""}`}
+          >
+            {editing ? "Save Changes" : "+ Add Class"}
+          </button>
+          {editing && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={cancelEdit}>
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

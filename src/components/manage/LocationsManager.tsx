@@ -9,6 +9,7 @@ export function LocationsManager() {
   const [items, setItems] = useState<Location[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Location | null>(null);
 
   async function load() {
     const j = await fetch("/api/locations").then((r) => r.json());
@@ -27,8 +28,8 @@ export function LocationsManager() {
     const code = String(fd.get("countryCode") || "");
     const country = COUNTRIES.find((c) => c.code === code);
     try {
-      const res = await fetch("/api/locations", {
-        method: "POST",
+      const res = await fetch(editing ? `/api/locations/${editing.id}` : "/api/locations", {
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           label: fd.get("label"),
@@ -39,6 +40,7 @@ export function LocationsManager() {
       const jr = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(jr.error || "Failed");
       form.reset();
+      setEditing(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
@@ -47,9 +49,15 @@ export function LocationsManager() {
     }
   }
 
+  function cancelEdit() {
+    setEditing(null);
+    setError(null);
+  }
+
   async function remove(id: string) {
     if (!confirm("Remove this location?")) return;
     await fetch(`/api/locations/${id}`, { method: "DELETE" });
+    if (editing?.id === id) cancelEdit();
     load();
   }
 
@@ -72,20 +80,34 @@ export function LocationsManager() {
               {l.flag} {l.label}
               {l.country ? <span className="ml-1 font-normal text-muted">· {l.country}</span> : null}
             </div>
-            <button className="btn btn-danger btn-sm" onClick={() => remove(l.id)}>
-              Remove
-            </button>
+            <div className="flex gap-2">
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditing(l)}>
+                Edit
+              </button>
+              <button className="btn btn-danger btn-sm" onClick={() => remove(l.id)}>
+                Remove
+              </button>
+            </div>
           </div>
         ))}
       </div>
 
-      <form onSubmit={add} className="rounded-lg border-[1.5px] border-line bg-cream/50 p-3.5">
+      <form
+        onSubmit={add}
+        key={editing?.id ?? "new"}
+        className="rounded-lg border-[1.5px] border-line bg-cream/50 p-3.5"
+      >
         <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate">
-          Add location
+          {editing ? "Edit location" : "Add location"}
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <input name="label" className="field" placeholder="City *" required />
-          <select name="countryCode" className="field" required defaultValue="">
+          <input name="label" className="field" placeholder="City *" defaultValue={editing?.label} required />
+          <select
+            name="countryCode"
+            className="field"
+            required
+            defaultValue={COUNTRIES.find((c) => c.name === editing?.country)?.code ?? ""}
+          >
             <option value="" disabled>
               Country * (flag added automatically)
             </option>
@@ -100,9 +122,16 @@ export function LocationsManager() {
           The flag emoji is set automatically from the country you pick.
         </div>
         {error && <div className="mt-2 text-xs font-semibold text-danger">{error}</div>}
-        <button className={`btn btn-primary btn-sm mt-3 ${busy ? "is-disabled" : ""}`}>
-          + Add Location
-        </button>
+        <div className="mt-3 flex gap-2">
+          <button className={`btn btn-primary btn-sm ${busy ? "is-disabled" : ""}`}>
+            {editing ? "Save Changes" : "+ Add Location"}
+          </button>
+          {editing && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={cancelEdit}>
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
     </div>
   );

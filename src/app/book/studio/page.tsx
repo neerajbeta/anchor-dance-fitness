@@ -19,7 +19,12 @@ export default function BookStudioPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [coupon, setCoupon] = useState("");
-  const [applied, setApplied] = useState<{ code: string; percent: number } | null>(null);
+  const [applied, setApplied] = useState<{
+    code: string;
+    type: "percent" | "flat";
+    percent: number;
+    flatAmount: number;
+  } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -40,7 +45,11 @@ export default function BookStudioPage() {
       ? STUDIO_SLOTS[selected[selected.length - 1].i + 1]?.time ?? "10:00 PM"
       : "—";
 
-  const discountAmount = applied ? Math.round((price * applied.percent) / 100) : 0;
+  const discountAmount = applied
+    ? applied.type === "flat"
+      ? Math.min(price, applied.flatAmount)
+      : Math.round((price * applied.percent) / 100)
+    : 0;
   const total = price - discountAmount;
   const ready = purpose !== "" && food && name.trim() !== "" && email.trim() !== "" && hours > 0;
 
@@ -276,7 +285,7 @@ export default function BookStudioPage() {
                 </div>
                 {applied && (
                   <div className="mt-1.5 text-[12px] font-semibold text-ok">
-                    ✓ {applied.code} applied — {applied.percent}% off
+                    ✓ {applied.code} applied — {applied.type === "flat" ? `SEK ${applied.flatAmount} off` : `${applied.percent}% off`}
                   </div>
                 )}
                 {couponError && <div className="mt-1.5 text-[12px] font-semibold text-danger">{couponError}</div>}
@@ -286,7 +295,7 @@ export default function BookStudioPage() {
               <div className="my-3.5 rounded-lg border-[1.5px] border-line bg-cream/60 p-4">
                 <Row label={`Studio Hire — ${hours} Hour${hours === 1 ? "" : "s"}`} value={`SEK ${price.toLocaleString()}`} />
                 {applied && (
-                  <Row label={`Discount (${applied.code} · ${applied.percent}%)`} value={`− SEK ${discountAmount.toLocaleString()}`} />
+                  <Row label={`Discount (${applied.code} · ${applied.type === "flat" ? `SEK ${applied.flatAmount}` : `${applied.percent}%`})`} value={`− SEK ${discountAmount.toLocaleString()}`} />
                 )}
                 <Row label="Tax (0%)" value="SEK 0" />
                 <Row label="Total" value={`SEK ${total.toLocaleString()}`} accent bold />

@@ -8,6 +8,7 @@ export function CategoriesManager() {
   const [items, setItems] = useState<Category[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Category | null>(null);
 
   async function load() {
     const j = await fetch("/api/categories").then((r) => r.json());
@@ -24,14 +25,15 @@ export function CategoriesManager() {
     const form = e.currentTarget;
     const fd = new FormData(form);
     try {
-      const res = await fetch("/api/categories", {
-        method: "POST",
+      const res = await fetch(editing ? `/api/categories/${editing.id}` : "/api/categories", {
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: fd.get("name") }),
       });
       const jr = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(jr.error || "Failed");
       form.reset();
+      setEditing(null);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
@@ -40,9 +42,15 @@ export function CategoriesManager() {
     }
   }
 
+  function cancelEdit() {
+    setEditing(null);
+    setError(null);
+  }
+
   async function remove(id: string) {
     if (!confirm("Remove this category?")) return;
     await fetch(`/api/categories/${id}`, { method: "DELETE" });
+    if (editing?.id === id) cancelEdit();
     load();
   }
 
@@ -64,25 +72,42 @@ export function CategoriesManager() {
             <div className="flex items-center gap-2 text-[13px] font-bold text-ink">
               <span className="badge badge-brand">{c.name}</span>
             </div>
-            <button className="btn btn-danger btn-sm" onClick={() => remove(c.id)}>
-              Remove
-            </button>
+            <div className="flex gap-2">
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditing(c)}>
+                Edit
+              </button>
+              <button className="btn btn-danger btn-sm" onClick={() => remove(c.id)}>
+                Remove
+              </button>
+            </div>
           </div>
         ))}
       </div>
 
-      <form onSubmit={add} className="rounded-lg border-[1.5px] border-line bg-cream/50 p-3.5">
+      <form
+        onSubmit={add}
+        key={editing?.id ?? "new"}
+        className="rounded-lg border-[1.5px] border-line bg-cream/50 p-3.5"
+      >
         <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate">
-          Add category
+          {editing ? "Edit category" : "Add category"}
         </div>
         <div className="flex gap-3">
           <input
             name="name"
             className="field flex-1"
             placeholder="Category name * (e.g. Hip Hop, Salsa)"
+            defaultValue={editing?.name}
             required
           />
-          <button className={`btn btn-primary btn-sm ${busy ? "is-disabled" : ""}`}>+ Add</button>
+          <button className={`btn btn-primary btn-sm ${busy ? "is-disabled" : ""}`}>
+            {editing ? "Save" : "+ Add"}
+          </button>
+          {editing && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={cancelEdit}>
+              Cancel
+            </button>
+          )}
         </div>
         {error && <div className="mt-2 text-xs font-semibold text-danger">{error}</div>}
       </form>
