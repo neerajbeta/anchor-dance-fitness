@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { SectionHead } from "@/components/ui";
 import { type EventItem } from "@/lib/data";
@@ -28,15 +28,6 @@ export function EventsClient({
   const [error, setError] = useState<string | null>(null);
   const [startT, setStartT] = useState("");
   const [endT, setEndT] = useState("");
-  const [coupons, setCoupons] = useState<
-    { code: string; type: "percent" | "flat"; percent: number | null; flatAmount: number | null }[]
-  >([]);
-
-  useEffect(() => {
-    fetch("/api/discounts")
-      .then((r) => r.json())
-      .then((j) => setCoupons(j.data ?? []));
-  }, []);
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -72,7 +63,6 @@ export function EventsClient({
       endDate,
       startTime: start,
       endTime: end,
-      couponCode: fd.get("couponCode") || "",
     };
     try {
       const res = await fetch("/api/events", {
@@ -257,21 +247,6 @@ export function EventsClient({
             <div className="mt-3">
               <label className="field-label">Description</label>
               <textarea name="description" className="field" rows={2} placeholder="Shown on public listing..." />
-            </div>
-
-            <div className="mt-3">
-              <label className="field-label">Coupon (optional)</label>
-              <select name="couponCode" className="field" defaultValue="">
-                <option value="">No coupon</option>
-                {coupons.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.code} — {c.type === "flat" ? `SEK ${c.flatAmount} off` : `${c.percent}% off`}
-                  </option>
-                ))}
-              </select>
-              <div className="mt-1 text-[11px] text-muted">
-                Codes come from Discount Master. Applied to this event&apos;s price at booking.
-              </div>
             </div>
 
             {error && (
