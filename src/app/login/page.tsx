@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { LogoMark, LogoWordmark } from "@/components/Logo";
 import { GoogleButton } from "@/components/GoogleButton";
+import { BookDemoButton } from "@/components/BookDemoButton";
 
 const GOOGLE_ERRORS: Record<string, string> = {
   google_not_configured: "Google sign-in isn't set up yet — use email instead.",
@@ -61,6 +62,9 @@ function LoginPageInner() {
               </li>
             ))}
           </ul>
+          <div className="mt-8">
+            <BookDemoButton className="btn btn-primary btn-lg" />
+          </div>
         </div>
       </div>
 

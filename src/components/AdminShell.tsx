@@ -31,6 +31,7 @@ const NAV: { section: string | null; items: NavItem[] }[] = [
       { href: "/admin/book-on-behalf", label: "Book on Behalf", icon: "✏️" },
       { href: "/admin/studio", label: "Studio Bookings", icon: "🏛️" },
       { href: "/admin/payments", label: "Payments", icon: "💳" },
+      { href: "/admin/enquiries", label: "Enquiries", icon: "📨" },
     ],
   },
   { section: "Comms", items: [{ href: "#", label: "Announcements", icon: "📩" }] },

@@ -28,6 +28,10 @@ function toItem(row: EventRow): EventItem {
     media: "",
     past: row.isPast,
     attended: row.seatsTotal,
+    eventDate: row.eventDate ?? undefined,
+    endDate: row.endDate ?? undefined,
+    startTime: row.startTime ? row.startTime.slice(0, 5) : undefined,
+    endTime: row.endTime ? row.endTime.slice(0, 5) : undefined,
   };
 }
 

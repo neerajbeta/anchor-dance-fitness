@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { TopNav } from "@/components/TopNav";
+import { BookDemoButton } from "@/components/BookDemoButton";
 
 const TYPES = [
   {
@@ -41,6 +42,7 @@ export default function BookHome() {
           { label: "My Portal", href: "/portal" },
           { label: "Sign Out", href: "/login" },
         ]}
+        right={<BookDemoButton className="btn btn-primary btn-sm" />}
       />
       <main className="mx-auto w-full max-w-6xl px-6 py-8 anim-fade">
         <h1 className="font-display text-2xl font-bold text-ink">Book a Session</h1>

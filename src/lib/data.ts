@@ -69,6 +69,10 @@ export type EventItem = {
   media: string;
   past?: boolean;
   attended?: number;
+  eventDate?: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
 };
 
 export const EVENTS: EventItem[] = [

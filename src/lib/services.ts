@@ -12,6 +12,7 @@ import {
   classes,
   categories,
   discounts,
+  enquiries,
 } from "@/lib/db/schema";
 
 export class DbNotConfiguredError extends Error {
@@ -571,4 +572,48 @@ export async function listCoaches() {
 }
 export async function listBatches() {
   return requireDb().select().from(batches).where(eq(batches.active, true));
+}
+
+// ───────────── Enquiries ("Book a Demo" leads) ─────────────
+export type EnquiryInput = {
+  fullName: string;
+  age?: number;
+  email: string;
+  phoneCountryCode?: string;
+  phone: string;
+  areaOfInterest?: string;
+  typeOfClass?: string;
+  preferredLocation?: string;
+  additionalInfo?: string;
+  consent: boolean;
+};
+
+export async function createEnquiry(input: EnquiryInput) {
+  const d = requireDb();
+  const [row] = await d
+    .insert(enquiries)
+    .values({
+      fullName: input.fullName.trim(),
+      age: input.age ?? null,
+      email: input.email.trim(),
+      phoneCountryCode: input.phoneCountryCode ?? null,
+      phone: input.phone.trim(),
+      areaOfInterest: input.areaOfInterest ?? null,
+      typeOfClass: input.typeOfClass ?? null,
+      preferredLocation: input.preferredLocation ?? null,
+      additionalInfo: input.additionalInfo ?? null,
+      consent: input.consent,
+    })
+    .returning();
+  return row;
+}
+
+export async function listEnquiries() {
+  return requireDb().select().from(enquiries).orderBy(desc(enquiries.createdAt));
+}
+
+export async function updateEnquiryStatus(id: string, status: "new" | "contacted" | "closed") {
+  const d = requireDb();
+  const [row] = await d.update(enquiries).set({ status }).where(eq(enquiries.id, id)).returning();
+  return row ?? null;
 }
