@@ -284,3 +284,24 @@ export const registrations = pgTable("registrations", {
 });
 
 export type RegistrationRow = typeof registrations.$inferSelect;
+
+// ───────────────────────── Enquiries ("Book a Demo" leads) ─────────────────────────
+// Submitted by visitors who want info but haven't booked a specific class/event/
+// studio session yet (those go straight into `registrations`). Reviewed by admin.
+export const enquiries = pgTable("enquiries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fullName: text("full_name").notNull(),
+  age: integer("age"),
+  email: text("email").notNull(),
+  phoneCountryCode: text("phone_country_code"), // e.g. "+91"
+  phone: text("phone").notNull(),
+  areaOfInterest: text("area_of_interest"),
+  typeOfClass: text("type_of_class"),
+  preferredLocation: text("preferred_location"),
+  additionalInfo: text("additional_info"),
+  consent: boolean("consent").notNull().default(false),
+  status: text("status").notNull().default("new"), // "new" | "contacted" | "closed"
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export type EnquiryRow = typeof enquiries.$inferSelect;
