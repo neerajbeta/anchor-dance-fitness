@@ -28,7 +28,9 @@ export function EventsClient({
   const [error, setError] = useState<string | null>(null);
   const [startT, setStartT] = useState("");
   const [endT, setEndT] = useState("");
-  const [coupons, setCoupons] = useState<{ code: string; percent: number }[]>([]);
+  const [coupons, setCoupons] = useState<
+    { code: string; type: "percent" | "flat"; percent: number | null; flatAmount: number | null }[]
+  >([]);
 
   useEffect(() => {
     fetch("/api/discounts")
@@ -263,7 +265,7 @@ export function EventsClient({
                 <option value="">No coupon</option>
                 {coupons.map((c) => (
                   <option key={c.code} value={c.code}>
-                    {c.code} — {c.percent}% off
+                    {c.code} — {c.type === "flat" ? `SEK ${c.flatAmount} off` : `${c.percent}% off`}
                   </option>
                 ))}
               </select>

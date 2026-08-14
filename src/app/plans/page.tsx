@@ -15,7 +15,12 @@ export default function PlansPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [coupon, setCoupon] = useState("");
-  const [applied, setApplied] = useState<{ code: string; percent: number } | null>(null);
+  const [applied, setApplied] = useState<{
+    code: string;
+    type: "percent" | "flat";
+    percent: number;
+    flatAmount: number;
+  } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -29,7 +34,11 @@ export default function PlansPage() {
   const months = sel === "quarterly" ? 3 : sel === "biannual" ? 6 : sel === "annual" ? 12 : 1;
   // Real class price from the draft when available; otherwise fall back to the demo plan pricing.
   const base = draft ? draft.baseAmount || plan.price : plan.id === "demo" ? plan.price : plan.price * months;
-  const discountAmount = applied ? Math.round((base * applied.percent) / 100) : 0;
+  const discountAmount = applied
+    ? applied.type === "flat"
+      ? Math.min(base, applied.flatAmount)
+      : Math.round((base * applied.percent) / 100)
+    : 0;
   const total = base - discountAmount;
 
   async function applyCoupon() {
@@ -248,7 +257,7 @@ export default function PlansPage() {
             </div>
             {applied && (
               <div className="mt-1.5 text-[12px] font-semibold text-ok">
-                ✓ {applied.code} applied — {applied.percent}% off
+                ✓ {applied.code} applied — {applied.type === "flat" ? `SEK ${applied.flatAmount} off` : `${applied.percent}% off`}
               </div>
             )}
             {couponError && <div className="mt-1.5 text-[12px] font-semibold text-danger">{couponError}</div>}
@@ -264,7 +273,7 @@ export default function PlansPage() {
             </div>
             {applied && (
               <div className="flex justify-between border-b border-line py-1.5 text-[13px] text-ok">
-                <span>Discount ({applied.code} · {applied.percent}%)</span>
+                <span>Discount ({applied.code} · {applied.type === "flat" ? `SEK ${applied.flatAmount}` : `${applied.percent}%`})</span>
                 <span>− SEK {discountAmount.toLocaleString()}</span>
               </div>
             )}

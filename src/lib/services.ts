@@ -150,7 +150,10 @@ export async function createRegistration(input: RegistrationInput) {
       classId: input.classId,
     });
     if (resolved) {
-      amount = Math.round(base * (1 - resolved.percent / 100));
+      amount =
+        resolved.type === "flat"
+          ? Math.max(0, base - resolved.flatAmount)
+          : Math.round(base * (1 - resolved.percent / 100));
       appliedCode = resolved.code;
     }
   }
@@ -323,6 +326,23 @@ export async function createLocation(input: { label: string; country?: string; f
   return row ?? null;
 }
 
+export async function updateLocation(
+  id: string,
+  patch: { label?: string; country?: string; flag?: string }
+) {
+  const d = requireDb();
+  const [row] = await d
+    .update(locations)
+    .set({
+      ...(patch.label !== undefined ? { label: patch.label.trim() } : {}),
+      ...(patch.country !== undefined ? { country: patch.country || null } : {}),
+      ...(patch.flag !== undefined ? { flag: patch.flag || null } : {}),
+    })
+    .where(eq(locations.id, id))
+    .returning();
+  return row ?? null;
+}
+
 export async function deleteLocation(id: string) {
   await requireDb().delete(locations).where(eq(locations.id, id));
 }
@@ -338,6 +358,16 @@ export async function createCategory(name: string) {
     .insert(categories)
     .values({ name: name.trim() })
     .onConflictDoNothing({ target: categories.name })
+    .returning();
+  return row ?? null;
+}
+
+export async function updateCategory(id: string, patch: { name?: string }) {
+  const d = requireDb();
+  const [row] = await d
+    .update(categories)
+    .set({ ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) })
+    .where(eq(categories.id, id))
     .returning();
   return row ?? null;
 }
@@ -393,6 +423,33 @@ export async function createClass(input: ClassInput) {
   return row;
 }
 
+export async function updateClass(id: string, patch: Partial<ClassInput>) {
+  if (patch.startTime && patch.endTime && patch.endTime <= patch.startTime) {
+    throw new ConflictError("End time must be after start time.");
+  }
+  const d = requireDb();
+  const [row] = await d
+    .update(classes)
+    .set({
+      ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
+      ...(patch.category !== undefined ? { category: patch.category } : {}),
+      ...(patch.level !== undefined ? { level: patch.level } : {}),
+      ...(patch.location !== undefined ? { location: patch.location } : {}),
+      ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
+      ...(patch.days !== undefined ? { days: patch.days || null } : {}),
+      ...(patch.startDate !== undefined ? { startDate: patch.startDate || null } : {}),
+      ...(patch.endDate !== undefined ? { endDate: patch.endDate || null } : {}),
+      ...(patch.startTime !== undefined ? { startTime: patch.startTime } : {}),
+      ...(patch.endTime !== undefined ? { endTime: patch.endTime } : {}),
+      ...(patch.coach !== undefined ? { coach: patch.coach || null } : {}),
+      ...(patch.price !== undefined ? { price: patch.price } : {}),
+      ...(patch.capacity !== undefined ? { capacity: patch.capacity } : {}),
+    })
+    .where(eq(classes.id, id))
+    .returning();
+  return row ?? null;
+}
+
 export async function deleteClass(id: string) {
   await requireDb().delete(classes).where(eq(classes.id, id));
 }
@@ -401,7 +458,9 @@ export async function deleteClass(id: string) {
 export type DiscountInput = {
   name: string;
   code: string;
-  percent: number;
+  type?: "percent" | "flat";
+  percent?: number;
+  flatAmount?: number;
   scope: "all" | "category" | "class";
   target?: string;
 };
@@ -412,13 +471,17 @@ export async function listDiscounts() {
 
 export async function createDiscount(input: DiscountInput) {
   const d = requireDb();
-  const pct = Math.max(0, Math.min(100, Math.round(input.percent)));
+  const type = input.type === "flat" ? "flat" : "percent";
+  const pct = type === "percent" ? Math.max(0, Math.min(100, Math.round(input.percent ?? 0))) : null;
+  const flat = type === "flat" ? Math.max(0, Math.round(input.flatAmount ?? 0)) : null;
   const [row] = await d
     .insert(discounts)
     .values({
       name: input.name.trim(),
       code: input.code.trim().toUpperCase(),
+      type,
       percent: pct,
+      flatAmount: flat,
       scope: input.scope,
       target: input.scope === "all" ? null : input.target ?? null,
     })
@@ -427,16 +490,43 @@ export async function createDiscount(input: DiscountInput) {
   return row ?? null;
 }
 
+export async function updateDiscount(id: string, patch: Partial<DiscountInput>) {
+  const d = requireDb();
+  const type = patch.type;
+  const [row] = await d
+    .update(discounts)
+    .set({
+      ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
+      ...(patch.code !== undefined ? { code: patch.code.trim().toUpperCase() } : {}),
+      ...(type !== undefined ? { type } : {}),
+      ...(patch.percent !== undefined
+        ? { percent: Math.max(0, Math.min(100, Math.round(patch.percent))) }
+        : {}),
+      ...(patch.flatAmount !== undefined ? { flatAmount: Math.max(0, Math.round(patch.flatAmount)) } : {}),
+      ...(type === "percent" ? { flatAmount: null } : {}),
+      ...(type === "flat" ? { percent: null } : {}),
+      ...(patch.scope !== undefined ? { scope: patch.scope } : {}),
+      ...(patch.scope !== undefined
+        ? { target: patch.scope === "all" ? null : patch.target ?? null }
+        : patch.target !== undefined
+          ? { target: patch.target ?? null }
+          : {}),
+    })
+    .where(eq(discounts.id, id))
+    .returning();
+  return row ?? null;
+}
+
 export async function deleteDiscount(id: string) {
   await requireDb().delete(discounts).where(eq(discounts.id, id));
 }
 
-/** Resolve applicable discount percent for a code + item context. */
+/** Resolve applicable discount for a code + item context (percent or flat). */
 export async function resolveDiscount(opts: {
   code?: string;
   category?: string;
   classId?: string;
-}): Promise<{ code: string; percent: number } | null> {
+}): Promise<{ code: string; type: "percent" | "flat"; percent: number; flatAmount: number } | null> {
   if (!opts.code) return null;
   const d = requireDb();
   const rows = await d
@@ -447,7 +537,12 @@ export async function resolveDiscount(opts: {
   if (!disc) return null;
   if (disc.scope === "category" && disc.target !== opts.category) return null;
   if (disc.scope === "class" && disc.target !== opts.classId) return null;
-  return { code: disc.code, percent: disc.percent };
+  return {
+    code: disc.code,
+    type: disc.type,
+    percent: disc.percent ?? 0,
+    flatAmount: disc.flatAmount ?? 0,
+  };
 }
 
 // ───────────── Reports ─────────────

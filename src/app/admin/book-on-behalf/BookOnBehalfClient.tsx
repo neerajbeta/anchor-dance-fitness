@@ -69,7 +69,12 @@ export function BookOnBehalfClient({
   const [classId, setClassId] = useState("");
 
   const [coupon, setCoupon] = useState("");
-  const [applied, setApplied] = useState<{ code: string; percent: number } | null>(null);
+  const [applied, setApplied] = useState<{
+    code: string;
+    type: "percent" | "flat";
+    percent: number;
+    flatAmount: number;
+  } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -104,7 +109,11 @@ export function BookOnBehalfClient({
       ? selectedPlan.price
       : selectedPlan.price * months
     : 0;
-  const discountAmount = applied ? Math.round((baseAmount * applied.percent) / 100) : 0;
+  const discountAmount = applied
+    ? applied.type === "flat"
+      ? Math.min(baseAmount, applied.flatAmount)
+      : Math.round((baseAmount * applied.percent) / 100)
+    : 0;
   const totalAmount = baseAmount - discountAmount;
 
   async function applyCoupon() {
@@ -534,7 +543,7 @@ export function BookOnBehalfClient({
               </div>
               {applied && (
                 <div className="mt-1.5 text-[12px] font-semibold text-ok">
-                  ✓ {applied.code} applied — {applied.percent}% off
+                  ✓ {applied.code} applied — {applied.type === "flat" ? `SEK ${applied.flatAmount} off` : `${applied.percent}% off`}
                 </div>
               )}
               {couponError && <div className="mt-1.5 text-[12px] font-semibold text-danger">{couponError}</div>}
@@ -555,7 +564,7 @@ export function BookOnBehalfClient({
                 v={`SEK ${baseAmount.toLocaleString()}`}
               />
               {applied && (
-                <Row k={`Discount (${applied.code} · ${applied.percent}%)`} v={`− SEK ${discountAmount.toLocaleString()}`} accent />
+                <Row k={`Discount (${applied.code} · ${applied.type === "flat" ? `SEK ${applied.flatAmount}` : `${applied.percent}%`})`} v={`− SEK ${discountAmount.toLocaleString()}`} accent />
               )}
               <div className="flex justify-between pt-1.5 text-sm font-bold">
                 <span>Total</span>
