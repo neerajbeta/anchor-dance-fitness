@@ -1,16 +1,51 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/api";
-import { createEnquiry, listEnquiries, DbNotConfiguredError } from "@/lib/services";
+import { createEnquiry, listEnquiries, listUnconvertedSignups, DbNotConfiguredError } from "@/lib/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Admin only: view submitted "Book a Demo" leads.
+// Admin only: view "Book a Demo" leads + registered students who haven't
+// booked a service yet — both are people who showed interest but didn't
+// (yet) take a class/workshop/event/studio booking.
 export async function GET() {
   const auth = await requireAdmin();
   if (!auth.ok) return auth.response;
   try {
-    return NextResponse.json({ data: await listEnquiries() });
+    const [demoLeads, signups] = await Promise.all([listEnquiries(), listUnconvertedSignups()]);
+    const data = [
+      ...demoLeads.map((e) => ({
+        id: e.id,
+        source: "demo" as const,
+        fullName: e.fullName,
+        age: e.age,
+        email: e.email,
+        phoneCountryCode: e.phoneCountryCode,
+        phone: e.phone,
+        areaOfInterest: e.areaOfInterest,
+        typeOfClass: e.typeOfClass,
+        preferredLocation: e.preferredLocation,
+        additionalInfo: e.additionalInfo,
+        status: e.status,
+        createdAt: e.createdAt,
+      })),
+      ...signups.map((u) => ({
+        id: u.id,
+        source: "signup" as const,
+        fullName: u.name,
+        age: null,
+        email: u.email,
+        phoneCountryCode: null,
+        phone: u.phone,
+        areaOfInterest: null,
+        typeOfClass: null,
+        preferredLocation: u.city ? `${u.city}${u.country ? `, ${u.country}` : ""}` : null,
+        additionalInfo: null,
+        status: null,
+        createdAt: u.createdAt,
+      })),
+    ].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+    return NextResponse.json({ data });
   } catch (err) {
     if (err instanceof DbNotConfiguredError) return NextResponse.json({ data: [] });
     console.error("[api/enquiries]", err);

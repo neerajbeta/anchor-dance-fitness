@@ -684,3 +684,31 @@ export async function updateEnquiryStatus(id: string, status: "new" | "contacted
   const [row] = await d.update(enquiries).set({ status }).where(eq(enquiries.id, id)).returning();
   return row ?? null;
 }
+
+/**
+ * Students who created an account (via /register or Google) but haven't
+ * completed a class/workshop/studio booking yet — surfaced as enquiries too,
+ * alongside standalone "Book a Demo" leads, so admin sees everyone who
+ * showed interest but hasn't taken a service.
+ */
+export async function listUnconvertedSignups() {
+  const d = requireDb();
+  return d
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      phone: users.phone,
+      city: users.city,
+      country: users.country,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .where(
+      and(
+        eq(users.role, "student"),
+        sql`not exists (select 1 from ${registrations} r where r.email = ${users.email})`
+      )
+    )
+    .orderBy(desc(users.createdAt));
+}
