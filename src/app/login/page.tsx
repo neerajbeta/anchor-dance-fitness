@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { LogoMark, LogoWordmark } from "@/components/Logo";
 import { GoogleButton } from "@/components/GoogleButton";
 import { BookDemoButton } from "@/components/BookDemoButton";
@@ -24,7 +24,6 @@ export default function LoginPage() {
 }
 
 function LoginPageInner() {
-  const [mode, setMode] = useState<"login" | "signup">("login");
   const searchParams = useSearchParams();
   const errorCode = searchParams.get("error");
   const errorMessage = errorCode ? GOOGLE_ERRORS[errorCode] ?? "Sign-in failed. Please try again." : null;
@@ -80,69 +79,37 @@ function LoginPageInner() {
           </div>
         )}
 
-        {mode === "login" ? (
-          <div className="animate-scale-in">
-            <h2 className="mb-1 font-display text-2xl font-bold text-ink">Welcome back 👋</h2>
-            <p className="mb-5 text-[13px] text-slate">Sign in to continue</p>
-            <GoogleButton label="Continue with Google" />
-            <Divider label="or sign in with email" />
-            <div className="mb-3.5">
-              <label className="field-label">Email</label>
-              <input className="field" type="email" placeholder="you@example.com" />
-            </div>
-            <div className="mb-1">
-              <label className="field-label">Password</label>
-              <input className="field" type="password" placeholder="••••••••" />
-            </div>
-            <div className="mb-4 text-right">
-              <a className="cursor-pointer text-xs font-semibold text-brand-600">Forgot password?</a>
-            </div>
-            <Link href="/portal" className="btn btn-primary btn-block btn-lg mb-3">
-              Sign In
-            </Link>
-            <p className="text-center text-[13px] text-slate">
-              No account?{" "}
-              <button
-                onClick={() => setMode("signup")}
-                className="font-semibold text-brand-600"
-              >
-                Sign Up
-              </button>
-            </p>
-            <div className="mt-2 text-center">
-              <Link href="/admin/login" className="text-[13px] font-semibold text-brand-600">
-                🔐 Admin Login
-              </Link>
-            </div>
+        <div className="animate-scale-in">
+          <h2 className="mb-1 font-display text-2xl font-bold text-ink">Welcome back 👋</h2>
+          <p className="mb-5 text-[13px] text-slate">Sign in to continue</p>
+          <GoogleButton label="Continue with Google" />
+          <Divider label="or sign in with email" />
+          <div className="mb-3.5">
+            <label className="field-label">Email</label>
+            <input className="field" type="email" placeholder="you@example.com" />
           </div>
-        ) : (
-          <div className="animate-scale-in">
-            <h2 className="mb-1 font-display text-2xl font-bold text-ink">Create account ✨</h2>
-            <p className="mb-5 text-[13px] text-slate">Join Anchor Fitness</p>
-            <GoogleButton label="Sign up with Google" />
-            <Divider label="or use email" />
-            <div className="mb-3.5">
-              <label className="field-label">Email</label>
-              <input className="field" type="email" placeholder="you@example.com" />
-            </div>
-            <div className="mb-4">
-              <label className="field-label">Password</label>
-              <input className="field" type="password" placeholder="Create a password" />
-            </div>
-            <Link href="/register" className="btn btn-primary btn-block btn-lg mb-3">
-              Create Account &amp; Continue →
-            </Link>
-            <p className="text-center text-[13px] text-slate">
-              Have an account?{" "}
-              <button
-                onClick={() => setMode("login")}
-                className="font-semibold text-brand-600"
-              >
-                Sign In
-              </button>
-            </p>
+          <div className="mb-1">
+            <label className="field-label">Password</label>
+            <input className="field" type="password" placeholder="••••••••" />
           </div>
-        )}
+          <div className="mb-4 text-right">
+            <a className="cursor-pointer text-xs font-semibold text-brand-600">Forgot password?</a>
+          </div>
+          <Link href="/portal" className="btn btn-primary btn-block btn-lg mb-3">
+            Sign In
+          </Link>
+          <p className="text-center text-[13px] text-slate">
+            No account?{" "}
+            <Link href="/register" className="font-semibold text-brand-600">
+              Sign Up
+            </Link>
+          </p>
+          <div className="mt-2 text-center">
+            <Link href="/admin/login" className="text-[13px] font-semibold text-brand-600">
+              🔐 Admin Login
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   );
