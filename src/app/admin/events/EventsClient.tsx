@@ -24,12 +24,41 @@ export function EventsClient({
   const [modal, setModal] = useState(false);
   const [type, setType] = useState<"workshop" | "event">("workshop");
   const [mode, setMode] = useState<"online" | "offline">("online");
+  const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [startT, setStartT] = useState("");
   const [endT, setEndT] = useState("");
+  const [editing, setEditing] = useState<EventItem | null>(null);
 
-  async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
+  function openCreate() {
+    setEditing(null);
+    setType("workshop");
+    setMode("online");
+    setLocation("");
+    setStartT("");
+    setEndT("");
+    setError(null);
+    setModal(true);
+  }
+
+  function openEdit(ev: EventItem) {
+    setEditing(ev);
+    setType(ev.kind);
+    setMode(ev.mode);
+    setLocation(ev.location);
+    setStartT(ev.startTime ?? "");
+    setEndT(ev.endTime ?? "");
+    setError(null);
+    setModal(true);
+  }
+
+  function closeModal() {
+    setModal(false);
+    setEditing(null);
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     setError(null);
@@ -65,8 +94,8 @@ export function EventsClient({
       endTime: end,
     };
     try {
-      const res = await fetch("/api/events", {
-        method: "POST",
+      const res = await fetch(editing ? `/api/events/${editing.id}` : "/api/events", {
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -74,10 +103,10 @@ export function EventsClient({
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error || `Request failed (${res.status})`);
       }
-      setModal(false);
+      closeModal();
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create event");
+      setError(err instanceof Error ? err.message : "Failed to save event");
     } finally {
       setBusy(false);
     }
@@ -104,7 +133,7 @@ export function EventsClient({
             ) : (
               <span className="badge badge-warn">● Sample data</span>
             )}
-            <button className="btn btn-primary" onClick={() => setModal(true)}>
+            <button className="btn btn-primary" onClick={openCreate}>
               + Create New Event
             </button>
           </div>
@@ -119,11 +148,11 @@ export function EventsClient({
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         {events.map((e) => (
-          <EventAdminCard key={e.id} e={e} onDelete={handleDelete} />
+          <EventAdminCard key={e.id} e={e} onDelete={handleDelete} onEdit={openEdit} />
         ))}
 
         <button
-          onClick={() => setModal(true)}
+          onClick={openCreate}
           className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border-[1.5px] border-dashed border-line bg-white text-muted transition-colors hover:border-brand-400 hover:text-brand-600"
         >
           <div className="mb-2 text-3xl">+</div>
@@ -142,17 +171,21 @@ export function EventsClient({
       {modal && (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4"
-          onClick={() => setModal(false)}
+          onClick={closeModal}
         >
           <form
+            key={editing?.id ?? "new"}
             className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-pop animate-scale-in"
             onClick={(e) => e.stopPropagation()}
-            onSubmit={handleCreate}
+            onSubmit={handleSubmit}
           >
-            <div className="mb-1 font-display text-lg font-bold text-ink">Create New Event</div>
+            <div className="mb-1 font-display text-lg font-bold text-ink">
+              {editing ? "Edit Event" : "Create New Event"}
+            </div>
             <p className="mb-4 text-[13px] text-slate">
-              Set up a workshop or special event. It is saved to the database and appears on the
-              public listing.
+              {editing
+                ? "Update this workshop or event. Changes are saved to the database immediately."
+                : "Set up a workshop or special event. It is saved to the database and appears on the public listing."}
             </p>
 
             <div className="mb-3">
@@ -167,13 +200,26 @@ export function EventsClient({
 
             <div className="mb-3">
               <label className="field-label">Name *</label>
-              <input name="name" className="field" placeholder="e.g. Latin Rhythms Intensive" required />
+              <input
+                name="name"
+                className="field"
+                placeholder="e.g. Latin Rhythms Intensive"
+                defaultValue={editing?.title}
+                required
+              />
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="field-label">Location *</label>
-                <LocationSelect name="location" withCountry required />
+                <LocationSelect
+                  name="location"
+                  withCountry
+                  required
+                  allOption="Select location"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                />
               </div>
               <div>
                 <label className="field-label">Mode *</label>
@@ -186,15 +232,32 @@ export function EventsClient({
               </div>
               <div>
                 <label className="field-label">Start Date *</label>
-                <input name="startDate" className="field" type="date" required />
+                <input
+                  name="startDate"
+                  className="field"
+                  type="date"
+                  defaultValue={editing?.eventDate}
+                  required
+                />
               </div>
               <div>
                 <label className="field-label">End Date *</label>
-                <input name="endDate" className="field" type="date" required />
+                <input
+                  name="endDate"
+                  className="field"
+                  type="date"
+                  defaultValue={editing?.endDate}
+                  required
+                />
               </div>
               <div>
                 <label className="field-label">Instructor *</label>
-                <input name="instructor" className="field" placeholder="Coach name" />
+                <input
+                  name="instructor"
+                  className="field"
+                  placeholder="Coach name"
+                  defaultValue={editing?.coach}
+                />
               </div>
               <div>
                 <label className="field-label">Start Time *</label>
@@ -236,17 +299,37 @@ export function EventsClient({
               </div>
               <div>
                 <label className="field-label">Max Seats *</label>
-                <input name="maxSeats" className="field" type="number" placeholder="20" required />
+                <input
+                  name="maxSeats"
+                  className="field"
+                  type="number"
+                  placeholder="20"
+                  defaultValue={editing?.seatsTotal}
+                  required
+                />
               </div>
               <div>
                 <label className="field-label">Price (SEK) *</label>
-                <input name="price" className="field" type="number" placeholder="450" required />
+                <input
+                  name="price"
+                  className="field"
+                  type="number"
+                  placeholder="450"
+                  defaultValue={editing?.price}
+                  required
+                />
               </div>
             </div>
 
             <div className="mt-3">
               <label className="field-label">Description</label>
-              <textarea name="description" className="field" rows={2} placeholder="Shown on public listing..." />
+              <textarea
+                name="description"
+                className="field"
+                rows={2}
+                placeholder="Shown on public listing..."
+                defaultValue={editing?.desc}
+              />
             </div>
 
             {error && (
@@ -256,11 +339,11 @@ export function EventsClient({
             )}
 
             <div className="mt-4 flex justify-between">
-              <button type="button" className="btn btn-ghost" onClick={() => setModal(false)}>
+              <button type="button" className="btn btn-ghost" onClick={closeModal}>
                 Cancel
               </button>
               <button type="submit" className={`btn btn-primary ${busy ? "is-disabled" : ""}`}>
-                {busy ? "Creating…" : "Create Event"}
+                {busy ? (editing ? "Saving…" : "Creating…") : editing ? "Save Changes" : "Create Event"}
               </button>
             </div>
           </form>
@@ -270,7 +353,15 @@ export function EventsClient({
   );
 }
 
-function EventAdminCard({ e, onDelete }: { e: EventItem; onDelete: (id: string) => void }) {
+function EventAdminCard({
+  e,
+  onDelete,
+  onEdit,
+}: {
+  e: EventItem;
+  onDelete: (id: string) => void;
+  onEdit: (e: EventItem) => void;
+}) {
   const accent = e.kind === "workshop" ? "#E0972B" : "#8B5CF6";
   const registered = Math.max(0, e.seatsTotal - e.seatsLeft);
   return (
@@ -289,7 +380,9 @@ function EventAdminCard({ e, onDelete }: { e: EventItem; onDelete: (id: string) 
             </span>
           </div>
           <div className="flex gap-1">
-            <button className="btn btn-ghost btn-sm">✏️ Edit</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => onEdit(e)}>
+              ✏️ Edit
+            </button>
             <button className="btn btn-danger btn-sm" onClick={() => onDelete(e.id)}>
               🗑
             </button>
