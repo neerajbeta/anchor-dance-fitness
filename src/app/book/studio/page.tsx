@@ -1,12 +1,22 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LogoWordmark } from "@/components/Logo";
-import { StudioCalendar } from "@/components/StudioCalendar";
+import { StudioCalendar, type StudioBlockRange } from "@/components/StudioCalendar";
 import { LocationSelect } from "@/components/LocationSelect";
 import { STUDIO_SLOTS, STUDIO_PURPOSES, LOCATIONS } from "@/lib/data";
 import { saveLastBooking } from "@/lib/bookingDraft";
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+function formatDateLabel(iso: string) {
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
 
 const RATE = 600; // SEK per hour
 
@@ -35,6 +45,8 @@ export default function BookStudioPage() {
   const [purpose, setPurpose] = useState("");
   const [food, setFood] = useState(false);
   const [location, setLocation] = useState("Stockholm");
+  const [selectedDate, setSelectedDate] = useState(todayIso());
+  const [blocks, setBlocks] = useState<StudioBlockRange[]>([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [coupon, setCoupon] = useState("");
@@ -63,6 +75,12 @@ export default function BookStudioPage() {
   const total = price - discountAmount;
   const ready = purpose !== "" && food && name.trim() !== "" && email.trim() !== "" && hours > 0 && startT !== "";
 
+  useEffect(() => {
+    fetch("/api/studio/blocks")
+      .then((r) => r.json())
+      .then((j) => setBlocks(j.data ?? []));
+  }, []);
+
   async function applyCoupon() {
     if (!coupon.trim()) return;
     setChecking(true);
@@ -71,7 +89,7 @@ export default function BookStudioPage() {
       const res = await fetch("/api/discounts/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: coupon }),
+        body: JSON.stringify({ code: coupon, bookingType: "studio" }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Invalid code");
@@ -99,8 +117,8 @@ export default function BookStudioPage() {
           location,
           flag: loc?.flag ?? "",
           type: "studio",
-          detail: `Thu 7 Aug · ${startT}–${endLabel} · ${purpose}`,
-          period: "Thu, 7 Aug 2025",
+          detail: `${formatDateLabel(selectedDate)} · ${startT}–${endLabel} · ${purpose}`,
+          period: formatDateLabel(selectedDate),
           plan: "Studio Hire",
           paid: "paid",
           status: "Confirmed",
@@ -155,15 +173,21 @@ export default function BookStudioPage() {
               <LocationSelect withCountry value={location} onChange={(e) => setLocation(e.target.value)} />
             </div>
             <div className="card">
-              <div className="card-title">📅 Select a Date — August 2025</div>
-              <StudioCalendar selectedDay={7} />
+              <div className="card-title">📅 Select a Date</div>
+              <StudioCalendar
+                blocks={blocks}
+                locationFilter={location}
+                selected={selectedDate}
+                onSelect={setSelectedDate}
+                initialMonth={selectedDate}
+              />
             </div>
           </div>
 
           {/* Right: slots + details */}
           <div className="flex flex-col gap-4">
             <div className="card">
-              <div className="card-title">⏰ Time — Thu, 7 Aug 2025</div>
+              <div className="card-title">⏰ Time — {formatDateLabel(selectedDate)}</div>
               <p className="mb-2 text-[13px] text-muted">
                 Pick a start time and duration — greyed-out hours are already taken by classes,
                 workshops, or existing bookings. Price updates automatically.
@@ -213,7 +237,7 @@ export default function BookStudioPage() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="field-label">Date</label>
-                  <input className="field" value="Thu, 7 Aug 2025" readOnly />
+                  <input className="field" value={formatDateLabel(selectedDate)} readOnly />
                 </div>
                 <div>
                   <label className="field-label">Location</label>

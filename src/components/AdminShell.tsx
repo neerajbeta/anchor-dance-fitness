@@ -4,48 +4,65 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoWordmark } from "./Logo";
 import { logoutAction } from "@/lib/auth/actions";
+import { usePermissions } from "@/lib/usePermissions";
 
-type NavItem = { href: string; label: string; icon: string; primary?: boolean };
+type NavItem = { href: string; label: string; icon: string; primary?: boolean; permission?: string };
 const NAV: { section: string | null; items: NavItem[] }[] = [
   { section: null, items: [{ href: "/admin/registrations", label: "All Registrations", icon: "⊞", primary: true }] },
   {
     section: "Overview",
     items: [
-      { href: "/admin/dashboard", label: "Dashboard", icon: "📊" },
-      { href: "/admin/reports", label: "Reports", icon: "🏆" },
+      { href: "/admin/dashboard", label: "Dashboard", icon: "📊", permission: "dashboard.view" },
+      { href: "/admin/reports", label: "Reports", icon: "🏆", permission: "reports.view" },
     ],
   },
   {
     section: "Catalog",
     items: [
-      { href: "/admin/classes", label: "Classes", icon: "💃" },
-      { href: "/admin/categories", label: "Categories", icon: "🏷️" },
-      { href: "/admin/locations", label: "Locations", icon: "📍" },
-      { href: "/admin/discounts", label: "Discounts", icon: "🏷️" },
+      { href: "/admin/classes", label: "Classes", icon: "💃", permission: "classes.view" },
+      { href: "/admin/categories", label: "Categories", icon: "🏷️", permission: "categories.view" },
+      { href: "/admin/levels", label: "Levels", icon: "🎚️", permission: "levels.view" },
+      { href: "/admin/locations", label: "Locations", icon: "📍", permission: "locations.view" },
+      { href: "/admin/discounts", label: "Discounts", icon: "🏷️", permission: "discounts.view" },
     ],
   },
   {
     section: "Manage",
     items: [
-      { href: "/admin/events", label: "Events & Workshops", icon: "🎭" },
-      { href: "/admin/book-on-behalf", label: "Book on Behalf", icon: "✏️" },
-      { href: "/admin/studio", label: "Studio Bookings", icon: "🏛️" },
-      { href: "/admin/payments", label: "Payments", icon: "💳" },
-      { href: "/admin/enquiries", label: "Enquiries", icon: "📨" },
+      { href: "/admin/events", label: "Events & Workshops", icon: "🎭", permission: "events.view" },
+      { href: "/admin/book-on-behalf", label: "Book on Behalf", icon: "✏️", permission: "book_on_behalf.view" },
+      { href: "/admin/studio", label: "Studio Bookings", icon: "🏛️", permission: "studio.view" },
+      { href: "/admin/payments", label: "Payments", icon: "💳", permission: "payments.view" },
+      { href: "/admin/enquiries", label: "Enquiries", icon: "📨", permission: "enquiries.view" },
     ],
   },
-  { section: "Comms", items: [{ href: "#", label: "Announcements", icon: "📩" }] },
+  {
+    section: "Comms",
+    items: [{ href: "/admin/announcements", label: "Announcements", icon: "📩", permission: "announcements.view" }],
+  },
+  {
+    section: "User Management",
+    items: [
+      { href: "/admin/users", label: "Users", icon: "👥", permission: "users.view" },
+      { href: "/admin/roles", label: "Roles & Permissions", icon: "🔐", permission: "roles.view" },
+    ],
+  },
   {
     section: "Settings",
-    items: [
-      { href: "#", label: "Portal Settings", icon: "⚙️" },
-      { href: "#", label: "User Management", icon: "👥" },
-    ],
+    items: [{ href: "#", label: "Portal Settings", icon: "⚙️" }],
   },
 ];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const { can, loading } = usePermissions();
+  // While /api/me is loading, show every item (avoids a flash-hide flicker); permission-gated
+  // items are filtered out once the actor's permission set is known. Server-side checks are the
+  // real authorization boundary regardless of what's shown here.
+  const nav = NAV.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !item.permission || loading || can(item.permission)),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -76,7 +93,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="hidden w-56 flex-shrink-0 flex-col gap-0.5 overflow-y-auto bg-ink p-3 md:flex">
-          {NAV.map((group, gi) => (
+          {nav.map((group, gi) => (
             <div key={gi}>
               {group.section && <div className="side-section">{group.section}</div>}
               {group.items.map((item) => {

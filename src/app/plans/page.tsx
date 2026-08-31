@@ -49,7 +49,13 @@ export default function PlansPage() {
       const res = await fetch("/api/discounts/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: coupon, category: draft?.category, classId: draft?.classId }),
+        body: JSON.stringify({
+          code: coupon,
+          category: draft?.category,
+          classId: draft?.classId,
+          eventId: draft?.eventId,
+          bookingType: draft?.type,
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Invalid code");
@@ -84,11 +90,12 @@ export default function PlansPage() {
             period: draft.period,
             plan: plan.name,
             paid: "paid",
-            status: draft.type === "studio" ? "Confirmed" : "Pending Batch",
-            statusTone: draft.type === "studio" ? "ok" : "warn",
+            status: draft.type === "class" ? "Pending Batch" : "Confirmed",
+            statusTone: draft.type === "class" ? "warn" : "ok",
             baseAmount: base,
             discountCode: applied ? coupon : undefined,
             classId: draft.classId,
+            eventId: draft.eventId,
           }
         : {
             // No draft (direct visit / demo entry) — record the membership plan itself.
@@ -294,7 +301,16 @@ export default function PlansPage() {
           )}
 
           <div className="mt-4 flex justify-between">
-            <Link href={draft?.type === "studio" ? "/book/studio" : "/book/class"} className="btn btn-ghost">
+            <Link
+              href={
+                draft?.type === "studio"
+                  ? "/book/studio"
+                  : draft?.type === "workshop" || draft?.type === "event"
+                  ? "/book/workshops"
+                  : "/book/class"
+              }
+              className="btn btn-ghost"
+            >
               ← Back
             </Link>
             <button className={`btn btn-primary btn-lg ${busy ? "is-disabled" : ""}`} onClick={pay}>

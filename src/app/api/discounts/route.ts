@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/api";
+import { requirePermission } from "@/lib/auth/permissions";
 import { listDiscounts, createDiscount, DbNotConfiguredError } from "@/lib/services";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("discounts.create");
   if (!auth.ok) return auth.response;
   try {
     const b = await req.json();
@@ -38,9 +38,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "flatAmount must be a positive number" }, { status: 400 });
       }
     }
-    const scope = ["all", "category", "class"].includes(b.scope) ? b.scope : "all";
-    if (scope !== "all" && !b.target) {
-      return NextResponse.json({ error: "target required for category/class scope" }, { status: 400 });
+    const scope = ["all", "category", "class", "event", "workshop", "studio"].includes(b.scope)
+      ? b.scope
+      : "all";
+    if (!["all", "studio"].includes(scope) && !b.target) {
+      return NextResponse.json({ error: "target required for this scope" }, { status: 400 });
+    }
+    if (b.validFrom && b.validUntil && b.validUntil < b.validFrom) {
+      return NextResponse.json({ error: "Valid Until must be on or after Valid From" }, { status: 400 });
     }
     const row = await createDiscount({
       name: b.name,
@@ -50,6 +55,8 @@ export async function POST(req: NextRequest) {
       flatAmount,
       scope,
       target: b.target,
+      validFrom: b.validFrom,
+      validUntil: b.validUntil,
     });
     if (!row) return NextResponse.json({ error: "Code already exists" }, { status: 409 });
     return NextResponse.json({ data: row }, { status: 201 });

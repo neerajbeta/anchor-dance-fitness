@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LEVELS } from "@/lib/data";
 
 type Location = { id: string; label: string };
 type Category = { id: string; name: string };
+type Level = { id: string; name: string };
 type ClassRow = {
   id: string;
   name: string;
@@ -30,10 +30,40 @@ const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => {
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 });
 
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+// JS getDay(): 0=Sun..6=Sat — map to our Mon-first order above.
+const JS_DAY_TO_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function parseDays(days: string | null): Set<string> {
+  if (!days) return new Set();
+  return new Set(
+    days
+      .split(",")
+      .map((d) => d.trim())
+      .filter(Boolean)
+  );
+}
+
+// How many sessions a recurring class actually runs, given its date range and selected
+// weekdays — computed instead of asked for, since a manually-typed count drifts from reality
+// the moment the date range changes.
+function countSessions(startDate: string, endDate: string, days: Set<string>): number {
+  if (!startDate || !endDate || days.size === 0) return 0;
+  const start = new Date(startDate + "T00:00:00");
+  const end = new Date(endDate + "T00:00:00");
+  if (end < start) return 0;
+  let n = 0;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    if (days.has(JS_DAY_TO_LABEL[d.getDay()])) n++;
+  }
+  return n;
+}
+
 export function ClassesManager() {
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [levels, setLevels] = useState<Level[]>([]);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"online" | "offline">("offline");
   const [busy, setBusy] = useState(false);
@@ -41,16 +71,23 @@ export function ClassesManager() {
   const [startT, setStartT] = useState("");
   const [endT, setEndT] = useState("");
   const [editing, setEditing] = useState<ClassRow | null>(null);
+  const [recurring, setRecurring] = useState(true);
+  const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set());
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [singleDate, setSingleDate] = useState("");
 
   async function load() {
-    const [c, l, cat] = await Promise.all([
+    const [c, l, cat, lvl] = await Promise.all([
       fetch("/api/classes").then((r) => r.json()),
       fetch("/api/locations").then((r) => r.json()),
       fetch("/api/categories").then((r) => r.json()),
+      fetch("/api/levels").then((r) => r.json()),
     ]);
     setClasses(c.data ?? []);
     setLocations(l.data ?? []);
     setCategories(cat.data ?? []);
+    setLevels(lvl.data ?? []);
     setLoading(false);
   }
   useEffect(() => {
@@ -63,8 +100,24 @@ export function ClassesManager() {
     setError(null);
     const form = e.currentTarget;
     const fd = new FormData(form);
-    const sd = String(fd.get("startDate") || "");
-    const ed = String(fd.get("endDate") || "");
+
+    const sd = recurring ? startDate : singleDate;
+    const ed = recurring ? endDate : singleDate;
+    if (recurring && (!sd || !ed)) {
+      setError("Start date and end date are required for a recurring class");
+      setBusy(false);
+      return;
+    }
+    if (recurring && selectedDays.size === 0) {
+      setError("Pick at least one day of the week");
+      setBusy(false);
+      return;
+    }
+    if (!recurring && !sd) {
+      setError("Date is required");
+      setBusy(false);
+      return;
+    }
     if (sd && ed && ed < sd) {
       setError("End date must be on or after start date");
       setBusy(false);
@@ -85,9 +138,9 @@ export function ClassesManager() {
           level: fd.get("level"),
           location: fd.get("location"),
           mode,
-          days: fd.get("days"),
-          startDate: fd.get("startDate"),
-          endDate: fd.get("endDate"),
+          days: recurring ? WEEKDAYS.filter((d) => selectedDays.has(d)).join(", ") : null,
+          startDate: sd || null,
+          endDate: ed || null,
           startTime: fd.get("startTime"),
           endTime: fd.get("endTime"),
           coach: fd.get("coach"),
@@ -101,6 +154,11 @@ export function ClassesManager() {
       setStartT("");
       setEndT("");
       setMode("offline");
+      setRecurring(true);
+      setSelectedDays(new Set());
+      setStartDate("");
+      setEndDate("");
+      setSingleDate("");
       setEditing(null);
       load();
     } catch (err) {
@@ -115,6 +173,18 @@ export function ClassesManager() {
     setMode(c.mode);
     setStartT(fmt(c.startTime));
     setEndT(fmt(c.endTime));
+    const isRecurring = Boolean(c.days && c.days.trim());
+    setRecurring(isRecurring);
+    setSelectedDays(parseDays(c.days));
+    if (isRecurring) {
+      setStartDate(c.startDate ?? "");
+      setEndDate(c.endDate ?? "");
+      setSingleDate("");
+    } else {
+      setSingleDate(c.startDate ?? "");
+      setStartDate("");
+      setEndDate("");
+    }
     setError(null);
   }
 
@@ -123,8 +193,24 @@ export function ClassesManager() {
     setMode("offline");
     setStartT("");
     setEndT("");
+    setRecurring(true);
+    setSelectedDays(new Set());
+    setStartDate("");
+    setEndDate("");
+    setSingleDate("");
     setError(null);
   }
+
+  function toggleDay(day: string) {
+    setSelectedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) next.delete(day);
+      else next.add(day);
+      return next;
+    });
+  }
+
+  const sessionCount = recurring ? countSessions(startDate, endDate, selectedDays) : 0;
 
   async function remove(id: string) {
     if (!confirm("Delete this class?")) return;
@@ -135,6 +221,7 @@ export function ClassesManager() {
 
   const noCats = categories.length === 0;
   const noLocs = locations.length === 0;
+  const noLevels = levels.length === 0;
 
   return (
     <div className="card">
@@ -163,11 +250,13 @@ export function ClassesManager() {
                 {" · "}
                 <span className="font-semibold text-ink">SEK {c.price ?? 0}</span>
               </div>
-              {c.startDate && c.endDate && (
+              {c.days && c.startDate && c.endDate ? (
                 <div className="text-[11px] text-muted">
-                  📅 {c.startDate} → {c.endDate}
+                  📅 {c.startDate} → {c.endDate} · {countSessions(c.startDate, c.endDate, parseDays(c.days))} sessions
                 </div>
-              )}
+              ) : c.startDate ? (
+                <div className="text-[11px] text-muted">📅 {c.startDate} · One-off</div>
+              ) : null}
             </div>
             <div className="flex gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => startEdit(c)}>
@@ -181,13 +270,10 @@ export function ClassesManager() {
         ))}
       </div>
 
-      {(noCats || noLocs) && (
+      {(noCats || noLocs || noLevels) && (
         <div className="mb-3 rounded-lg border-[1.5px] border-warn/40 bg-warn/10 px-3.5 py-2.5 text-[12px] text-[#7a5512]">
-          {noLocs && "Add a location first. "}
-          {noCats && "Add a category first. "}
-          Classes need at least one {noLocs ? "location" : ""}
-          {noLocs && noCats ? " and " : ""}
-          {noCats ? "category" : ""}.
+          Classes need at least one location, category, and level. Missing:{" "}
+          {[noLocs && "location", noCats && "category", noLevels && "level"].filter(Boolean).join(", ")}.
         </div>
       )}
 
@@ -214,8 +300,8 @@ export function ClassesManager() {
             <option value="" disabled>
               Level *
             </option>
-            {LEVELS.map((l) => (
-              <option key={l}>{l}</option>
+            {levels.map((l) => (
+              <option key={l.id}>{l.name}</option>
             ))}
           </select>
           <select name="location" className="field" required defaultValue={editing?.location ?? ""}>
@@ -226,57 +312,166 @@ export function ClassesManager() {
               <option key={l.id}>{l.label}</option>
             ))}
           </select>
-          <input name="days" className="field" placeholder="Days (e.g. Mon, Wed, Fri)" defaultValue={editing?.days ?? ""} />
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div>
-            <label className="field-label">Start Date *</label>
-            <input name="startDate" className="field" type="date" defaultValue={editing?.startDate ?? ""} required />
-          </div>
-          <div>
-            <label className="field-label">End Date *</label>
-            <input name="endDate" className="field" type="date" defaultValue={editing?.endDate ?? ""} required />
-          </div>
-          <div>
-            <label className="field-label">Start Time *</label>
-            <select
-              name="startTime"
-              className="field"
-              required
-              value={startT}
-              onChange={(e) => {
-                setStartT(e.target.value);
-                if (endT && endT <= e.target.value) setEndT("");
-              }}
-            >
-              <option value="" disabled>
-                Select
-              </option>
-              {TIME_SLOTS.map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="field-label">End Time *</label>
-            <select
-              name="endTime"
-              className="field"
-              required
-              value={endT}
-              onChange={(e) => setEndT(e.target.value)}
-              disabled={!startT}
-            >
-              <option value="" disabled>
-                {startT ? "Select" : "Pick start first"}
-              </option>
-              {TIME_SLOTS.filter((t) => t > startT).map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
+        <div className="mt-3">
+          <label className="field-label">Recurring?</label>
+          <div className="flex overflow-hidden rounded-lg border-2 border-line sm:w-64">
+            {([true, false] as const).map((r) => (
+              <button
+                key={String(r)}
+                type="button"
+                onClick={() => setRecurring(r)}
+                className={`flex-1 py-2 text-[12px] font-semibold ${
+                  recurring === r ? "bg-ink text-white" : "bg-white text-slate"
+                }`}
+              >
+                {r ? "Yes — repeats weekly" : "No — one-off session"}
+              </button>
+            ))}
           </div>
         </div>
+
+        {recurring ? (
+          <>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <label className="field-label">Start Date *</label>
+                <input
+                  className="field"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="field-label">End Date *</label>
+                <input
+                  className="field"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="field-label">Start Time *</label>
+                <select
+                  name="startTime"
+                  className="field"
+                  required
+                  value={startT}
+                  onChange={(e) => {
+                    setStartT(e.target.value);
+                    if (endT && endT <= e.target.value) setEndT("");
+                  }}
+                >
+                  <option value="" disabled>
+                    Select
+                  </option>
+                  {TIME_SLOTS.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">End Time *</label>
+                <select
+                  name="endTime"
+                  className="field"
+                  required
+                  value={endT}
+                  onChange={(e) => setEndT(e.target.value)}
+                  disabled={!startT}
+                >
+                  <option value="" disabled>
+                    {startT ? "Select" : "Pick start first"}
+                  </option>
+                  {TIME_SLOTS.filter((t) => t > startT).map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <label className="field-label">Repeats on *</label>
+              <div className="flex flex-wrap gap-1.5">
+                {WEEKDAYS.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => toggleDay(d)}
+                    className={`rounded-lg border-2 px-3 py-1.5 text-[12px] font-semibold ${
+                      selectedDays.has(d)
+                        ? "border-ink bg-ink text-white"
+                        : "border-line bg-white text-slate"
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+              {startDate && endDate && selectedDays.size > 0 && (
+                <div className="mt-1.5 text-[12px] font-semibold text-brand-600">
+                  → {sessionCount} session{sessionCount === 1 ? "" : "s"} between {startDate} and {endDate}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div>
+              <label className="field-label">Date *</label>
+              <input
+                className="field"
+                type="date"
+                value={singleDate}
+                onChange={(e) => setSingleDate(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="field-label">Start Time *</label>
+              <select
+                name="startTime"
+                className="field"
+                required
+                value={startT}
+                onChange={(e) => {
+                  setStartT(e.target.value);
+                  if (endT && endT <= e.target.value) setEndT("");
+                }}
+              >
+                <option value="" disabled>
+                  Select
+                </option>
+                {TIME_SLOTS.map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="field-label">End Time *</label>
+              <select
+                name="endTime"
+                className="field"
+                required
+                value={endT}
+                onChange={(e) => setEndT(e.target.value)}
+                disabled={!startT}
+              >
+                <option value="" disabled>
+                  {startT ? "Select" : "Pick start first"}
+                </option>
+                {TIME_SLOTS.filter((t) => t > startT).map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
 
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div>
@@ -309,7 +504,7 @@ export function ClassesManager() {
         {error && <div className="mt-2 text-xs font-semibold text-danger">{error}</div>}
         <div className="mt-3 flex gap-2">
           <button
-            className={`btn btn-primary btn-sm ${busy || noCats || noLocs ? "is-disabled" : ""}`}
+            className={`btn btn-primary btn-sm ${busy || noCats || noLocs || noLevels ? "is-disabled" : ""}`}
           >
             {editing ? "Save Changes" : "+ Add Class"}
           </button>

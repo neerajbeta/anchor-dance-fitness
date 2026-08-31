@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/api";
+import { requirePermission } from "@/lib/auth/permissions";
 import { updateEnquiryStatus, DbNotConfiguredError } from "@/lib/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("enquiries.edit");
   if (!auth.ok) return auth.response;
   try {
     const b = await req.json();

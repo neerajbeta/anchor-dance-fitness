@@ -24,7 +24,9 @@ export async function verifyAdminCredentials(
         .from(users)
         .where(and(eq(users.email, normEmail), eq(users.role, "admin")));
       const u = rows[0];
+      if (u?.status === "inactive") return null; // deactivated admin account
       if (u?.passwordHash && (await bcrypt.compare(password, u.passwordHash))) {
+        await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, u.id));
         return { email: u.email, name: u.name, role: u.role };
       }
     } catch (err) {

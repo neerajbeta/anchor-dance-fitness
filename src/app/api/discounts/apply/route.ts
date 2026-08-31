@@ -4,12 +4,19 @@ import { resolveDiscount, DbNotConfiguredError } from "@/lib/services";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Public: live coupon preview during checkout (no write). Body: { code, category?, classId? }
+// Public: live coupon preview during checkout (no write).
+// Body: { code, category?, classId?, eventId?, bookingType? }
 export async function POST(req: NextRequest) {
   try {
     const b = await req.json();
     if (!b?.code) return NextResponse.json({ error: "code is required" }, { status: 400 });
-    const resolved = await resolveDiscount({ code: b.code, category: b.category, classId: b.classId });
+    const resolved = await resolveDiscount({
+      code: b.code,
+      category: b.category,
+      classId: b.classId,
+      eventId: b.eventId,
+      bookingType: b.bookingType,
+    });
     if (!resolved) return NextResponse.json({ error: "Invalid or inapplicable code" }, { status: 404 });
     return NextResponse.json({ data: resolved });
   } catch (err) {

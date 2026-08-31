@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { LogoWordmark } from "@/components/Logo";
 import { Stepper } from "@/components/Stepper";
-import { CATEGORIES, LEVELS } from "@/lib/data";
 import { saveDraft } from "@/lib/bookingDraft";
 
 type Location = { id: string; label: string; flag: string | null };

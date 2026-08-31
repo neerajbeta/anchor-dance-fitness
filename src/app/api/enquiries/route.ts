@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/api";
+import { requirePermission } from "@/lib/auth/permissions";
 import { createEnquiry, listEnquiries, listUnconvertedSignups, DbNotConfiguredError } from "@/lib/services";
 
 export const runtime = "nodejs";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // booked a service yet — both are people who showed interest but didn't
 // (yet) take a class/workshop/event/studio booking.
 export async function GET() {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("enquiries.view");
   if (!auth.ok) return auth.response;
   try {
     const [demoLeads, signups] = await Promise.all([listEnquiries(), listUnconvertedSignups()]);

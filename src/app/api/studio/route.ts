@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/api";
+import { requirePermission } from "@/lib/auth/permissions";
 import { getStudioBookings } from "@/lib/stats";
 import { createStudioBlock, listStudioBlocks, DbNotConfiguredError } from "@/lib/services";
 
@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("studio.view");
   if (!auth.ok) return auth.response;
   try {
     const [bookings, blocks] = await Promise.all([getStudioBookings(), listStudioBlocks()]);
@@ -17,8 +17,9 @@ export async function GET() {
   }
 }
 
+// Blocks a studio slot (maintenance/private use) — not a student booking.
 export async function POST(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("studio.edit");
   if (!auth.ok) return auth.response;
   try {
     const b = await req.json();

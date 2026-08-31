@@ -5,7 +5,22 @@ import { useState } from "react";
 import { TopNav } from "@/components/TopNav";
 import { logoutUserAction } from "@/lib/auth/userActions";
 
-export function PortalClient({ userName }: { userName: string | null }) {
+type Tone = "info" | "warning" | "urgent";
+type Announcement = { id: string; title: string; message: string; tone: Tone };
+
+const TONE_STYLES: Record<Tone, { border: string; bg: string; icon: string; text: string }> = {
+  info: { border: "border-info/30", bg: "bg-info/5", icon: "ℹ️", text: "text-info" },
+  warning: { border: "border-warn/40", bg: "bg-warn/10", icon: "⚠️", text: "text-[#7a5512]" },
+  urgent: { border: "border-danger/40", bg: "bg-danger/5", icon: "🚨", text: "text-danger" },
+};
+
+export function PortalClient({
+  userName,
+  announcements = [],
+}: {
+  userName: string | null;
+  announcements?: Announcement[];
+}) {
   const [member, setMember] = useState("priya");
   const firstName = userName ? userName.split(" ")[0] : "Priya";
 
@@ -92,6 +107,23 @@ export function PortalClient({ userName }: { userName: string | null }) {
             </div>
           </div>
         </div>
+
+        {/* Announcements */}
+        {announcements.length > 0 && (
+          <div className="mb-5 flex flex-col gap-2.5">
+            {announcements.map((a) => {
+              const s = TONE_STYLES[a.tone];
+              return (
+                <div key={a.id} className={`rounded-xl border-[1.5px] ${s.border} ${s.bg} p-4`}>
+                  <div className={`mb-1 flex items-center gap-2 text-[13px] font-bold ${s.text}`}>
+                    <span>{s.icon}</span> {a.title}
+                  </div>
+                  <div className="text-[13px] leading-relaxed text-ink/80">{a.message}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Three columns */}
         <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">

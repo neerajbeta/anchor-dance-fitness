@@ -90,7 +90,7 @@ export function BookStudioOnBehalfButton() {
       const res = await fetch("/api/discounts/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: coupon }),
+        body: JSON.stringify({ code: coupon, bookingType: "studio" }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Invalid code");

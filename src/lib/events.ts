@@ -10,6 +10,16 @@ function gradientFor(kind: string) {
 
 type EventRow = typeof events.$inferSelect;
 
+// "Past" is derived from the real event date, not the DB's `isPast` flag —
+// that flag is only ever set to false at creation and never updated, so it
+// can't be trusted to reflect whether the event has actually happened.
+function isPastEvent(row: EventRow): boolean {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const endOrStart = row.endDate ?? row.eventDate;
+  if (endOrStart) return endOrStart < todayIso;
+  return row.isPast;
+}
+
 function toItem(row: EventRow): EventItem {
   return {
     id: row.id,
@@ -26,7 +36,7 @@ function toItem(row: EventRow): EventItem {
     seatsLeft: row.seatsLeft,
     seatsTotal: row.seatsTotal,
     media: "",
-    past: row.isPast,
+    past: isPastEvent(row),
     attended: row.seatsTotal,
     eventDate: row.eventDate ?? undefined,
     endDate: row.endDate ?? undefined,

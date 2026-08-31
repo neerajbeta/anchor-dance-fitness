@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/api";
+import { requirePermission } from "@/lib/auth/permissions";
 import { createRegistration, listRegistrations, DbNotConfiguredError } from "@/lib/services";
 
 export const runtime = "nodejs";
@@ -16,8 +17,9 @@ export async function GET() {
   }
 }
 
+// Admin "Book on Behalf" flow (the public self-service flow is /api/bookings, unauthenticated).
 export async function POST(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("book_on_behalf.create");
   if (!auth.ok) return auth.response;
   try {
     const body = await req.json();

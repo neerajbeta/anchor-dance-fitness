@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+type Scope = "all" | "category" | "class" | "event" | "workshop" | "studio";
+
 type Discount = {
   id: string;
   name: string;
@@ -9,35 +11,55 @@ type Discount = {
   type: "percent" | "flat";
   percent: number | null;
   flatAmount: number | null;
-  scope: "all" | "category" | "class";
+  scope: Scope;
   target: string | null;
+  validFrom: string | null;
+  validUntil: string | null;
 };
 type Category = { id: string; name: string };
 type ClassRow = { id: string; name: string };
+type EventRow = { id: string; title: string; kind: "workshop" | "event" };
+
+const SCOPES_WITH_TARGET = new Set<Scope>(["category", "class", "event", "workshop"]);
 
 export function DiscountsManager() {
   const [items, setItems] = useState<Discount[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [cls, setCls] = useState<ClassRow[]>([]);
-  const [scope, setScope] = useState<"all" | "category" | "class">("all");
+  const [events, setEvents] = useState<EventRow[]>([]);
+  const [scope, setScope] = useState<Scope>("all");
   const [type, setType] = useState<"percent" | "flat">("percent");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Discount | null>(null);
 
   async function load() {
-    const [d, c, k] = await Promise.all([
+    const [d, c, k, e] = await Promise.all([
       fetch("/api/discounts").then((r) => r.json()),
       fetch("/api/categories").then((r) => r.json()),
       fetch("/api/classes").then((r) => r.json()),
+      fetch("/api/events").then((r) => r.json()),
     ]);
     setItems(d.data ?? []);
     setCats(c.data ?? []);
     setCls(k.data ?? []);
+    setEvents(e.data ?? []);
   }
   useEffect(() => {
     load();
   }, []);
+
+  function targetLabel(d: Discount) {
+    if (d.scope === "all") return "Everything";
+    if (d.scope === "studio") return "Studio (all bookings)";
+    if (d.scope === "category") return `Category · ${d.target}`;
+    if (d.scope === "class") return `Class · ${cls.find((c) => c.id === d.target)?.name ?? d.target}`;
+    if (d.scope === "event" || d.scope === "workshop") {
+      const label = d.scope === "event" ? "Event" : "Workshop";
+      return `${label} · ${events.find((e) => e.id === d.target)?.title ?? d.target}`;
+    }
+    return d.scope;
+  }
 
   async function add(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -56,7 +78,9 @@ export function DiscountsManager() {
           percent: type === "percent" ? fd.get("percent") : undefined,
           flatAmount: type === "flat" ? fd.get("flatAmount") : undefined,
           scope,
-          target: scope === "all" ? null : fd.get("target"),
+          target: SCOPES_WITH_TARGET.has(scope) ? fd.get("target") : null,
+          validFrom: fd.get("validFrom") || null,
+          validUntil: fd.get("validUntil") || null,
         }),
       });
       const jr = await res.json().catch(() => ({}));
@@ -94,6 +118,9 @@ export function DiscountsManager() {
     load();
   }
 
+  const workshops = events.filter((e) => e.kind === "workshop");
+  const eventsOnly = events.filter((e) => e.kind === "event");
+
   return (
     <div className="card">
       <div className="card-title">🏷️ Discount Master</div>
@@ -117,7 +144,13 @@ export function DiscountsManager() {
                 </span>
               </div>
               <div className="mt-0.5 text-[11px] text-muted">
-                Applies to: {d.scope === "all" ? "Everything" : `${d.scope} · ${d.target}`}
+                Applies to: {targetLabel(d)}
+                {(d.validFrom || d.validUntil) && (
+                  <>
+                    {" "}
+                    · Valid {d.validFrom ?? "…"} → {d.validUntil ?? "…"}
+                  </>
+                )}
               </div>
             </div>
             <div className="flex gap-2">
@@ -185,14 +218,31 @@ export function DiscountsManager() {
               required
             />
           )}
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="field-label">Valid From (optional)</label>
+            <input name="validFrom" className="field" type="date" defaultValue={editing?.validFrom ?? ""} />
+          </div>
+          <div>
+            <label className="field-label">Valid Until (optional)</label>
+            <input name="validUntil" className="field" type="date" defaultValue={editing?.validUntil ?? ""} />
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <select
             className="field"
             value={scope}
-            onChange={(e) => setScope(e.target.value as typeof scope)}
+            onChange={(e) => setScope(e.target.value as Scope)}
           >
             <option value="all">Applies to: Everything</option>
             <option value="category">Applies to: Category</option>
             <option value="class">Applies to: Class</option>
+            <option value="event">Applies to: Event</option>
+            <option value="workshop">Applies to: Workshop</option>
+            <option value="studio">Applies to: Studio</option>
           </select>
           {scope === "category" && (
             <select name="target" className="field" required defaultValue={editing?.target ?? ""}>
@@ -216,7 +266,32 @@ export function DiscountsManager() {
               ))}
             </select>
           )}
+          {scope === "event" && (
+            <select name="target" className="field" required defaultValue={editing?.target ?? ""}>
+              <option value="" disabled>
+                Pick event *
+              </option>
+              {eventsOnly.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.title}
+                </option>
+              ))}
+            </select>
+          )}
+          {scope === "workshop" && (
+            <select name="target" className="field" required defaultValue={editing?.target ?? ""}>
+              <option value="" disabled>
+                Pick workshop *
+              </option>
+              {workshops.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.title}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
+
         {error && <div className="mt-2 text-xs font-semibold text-danger">{error}</div>}
         <div className="mt-3 flex gap-2">
           <button className={`btn btn-primary btn-sm ${busy ? "is-disabled" : ""}`}>

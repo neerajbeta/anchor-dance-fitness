@@ -7,6 +7,17 @@ import type { Registration } from "@/lib/data";
 
 type Bucket = { label: string; count: number };
 type Loc = { id: string; label: string; flag: string | null };
+type ActiveClassSession = {
+  id: string;
+  name: string;
+  category: string;
+  location: string;
+  mode: "online" | "offline";
+  days: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  sessionCount: number;
+};
 
 type FullReport = {
   connected: boolean;
@@ -63,6 +74,10 @@ export default function ReportsPage() {
   const [locs, setLocs] = useState<Loc[]>([]);
   const [report, setReport] = useState<FullReport>(EMPTY);
   const [loading, setLoading] = useState(true);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [sessionsData, setSessionsData] = useState<{ classes: ActiveClassSession[]; totalSessions: number } | null>(
+    null
+  );
 
   useEffect(() => {
     fetch("/api/locations")
@@ -81,6 +96,16 @@ export default function ReportsPage() {
       .then((j) => setReport(j.data ?? EMPTY))
       .finally(() => setLoading(false));
   }, [month, location, type]);
+
+  useEffect(() => {
+    if (!sessionsOpen) return;
+    const qs = new URLSearchParams();
+    if (location) qs.set("location", location);
+    setSessionsData(null);
+    fetch(`/api/reports/active-sessions?${qs}`)
+      .then((r) => r.json())
+      .then((j) => setSessionsData(j.data ?? { classes: [], totalSessions: 0 }));
+  }, [sessionsOpen, location]);
 
   const k = report.kpis;
 
@@ -150,7 +175,12 @@ export default function ReportsPage() {
             <Stat label="Total Registrations" value={String(k.totalRegistrations)} sub="Matching filters" />
             <Stat label="Revenue" value={`SEK ${k.revenue.toLocaleString()}`} sub="Confirmed payments" />
             <Stat label="Overdue" value={String(k.overdue)} tone="!text-danger" sub="Payment overdue" />
-            <Stat label="Active Classes" value={String(k.activeClasses)} sub="In Classes catalog" />
+            <Stat
+              label="Active Classes"
+              value={String(k.activeClasses)}
+              sub={sessionsOpen ? "Click to hide sessions ▲" : "In Classes catalog — click for sessions ▼"}
+              onClick={() => setSessionsOpen((v) => !v)}
+            />
             <Stat label="Active Events" value={String(k.activeEvents)} sub="Upcoming workshops/events" />
           </div>
           <div className="mb-5 grid grid-cols-2 gap-3.5 lg:grid-cols-5">
@@ -160,6 +190,64 @@ export default function ReportsPage() {
             <Stat label="Active Discounts" value={String(k.activeDiscounts)} sub="Discount Master" />
             <Stat label="Blocked Studio Slots" value={String(k.activeStudioBlocks)} sub="Studio Bookings" />
           </div>
+
+          {/* Active Classes → Active Sessions drill-down */}
+          {sessionsOpen && (
+            <div className="card mb-5">
+              <div className="mb-1 flex items-center justify-between">
+                <div className="card-title mb-0">📆 Active Sessions</div>
+                {sessionsData && (
+                  <span className="badge badge-brand">{sessionsData.totalSessions} total sessions</span>
+                )}
+              </div>
+              <p className="mb-3 text-[12px] text-slate">
+                Every active class isn&apos;t one session — a recurring class runs many. This
+                counts the real occurrences{location ? ` in ${location}` : ""}.
+              </p>
+              {sessionsData === null ? (
+                <div className="py-6 text-center text-[13px] text-muted">Loading…</div>
+              ) : sessionsData.classes.length === 0 ? (
+                <div className="rounded-lg border-[1.5px] border-dashed border-line bg-cream/40 py-8 text-center text-[13px] text-muted">
+                  No active classes{location ? ` in ${location}` : ""}.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="dt">
+                    <thead>
+                      <tr>
+                        <th>Class</th>
+                        <th>Category</th>
+                        <th>Location</th>
+                        <th>Mode</th>
+                        <th>Runs</th>
+                        <th>Sessions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sessionsData.classes.map((c) => (
+                        <tr key={c.id}>
+                          <td className="font-semibold text-ink">{c.name}</td>
+                          <td className="text-[12px]">{c.category}</td>
+                          <td className="whitespace-nowrap">{c.location}</td>
+                          <td>{c.mode === "online" ? "💻 Online" : "🏃 In-Person"}</td>
+                          <td className="text-[12px] text-muted">
+                            {c.days
+                              ? `${c.days} · ${c.startDate} → ${c.endDate}`
+                              : c.startDate
+                                ? `One-off · ${c.startDate}`
+                                : "—"}
+                          </td>
+                          <td>
+                            <span className="badge badge-brand">{c.sessionCount}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Breakdowns — 4 features side by side */}
           <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -238,13 +326,29 @@ export default function ReportsPage() {
   );
 }
 
-function Stat({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: string }) {
+function Stat({
+  label,
+  value,
+  sub,
+  tone,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  tone?: string;
+  onClick?: () => void;
+}) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className="stat">
+    <Tag
+      className={`stat ${onClick ? "text-left transition-colors hover:border-brand-400" : ""}`}
+      onClick={onClick}
+    >
       <div className="stat-label">{label}</div>
       <div className={`stat-value ${tone ?? ""}`}>{value}</div>
       <div className="stat-sub">{sub}</div>
-    </div>
+    </Tag>
   );
 }
 

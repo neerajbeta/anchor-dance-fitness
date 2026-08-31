@@ -3,7 +3,7 @@
 // students yet. sessionStorage only — cleared when the tab closes.
 
 export type BookingDraft = {
-  type: "class" | "studio";
+  type: "class" | "workshop" | "event" | "studio";
   // shared
   location: string;
   flag?: string;
@@ -13,6 +13,7 @@ export type BookingDraft = {
   category?: string;
   level?: string;
   classId?: string;
+  eventId?: string; // set for type="workshop"/"event"
   baseAmount: number; // SEK before discount, used for the plan/pay screen
   planName?: string;
 };
@@ -21,7 +22,7 @@ export type LastBooking = {
   id: string;
   name: string;
   email: string;
-  type: "class" | "studio";
+  type: "class" | "workshop" | "event" | "studio";
   location: string;
   detail: string;
   category?: string;

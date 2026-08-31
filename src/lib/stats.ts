@@ -1,6 +1,6 @@
 import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { db, hasDb } from "@/lib/db/client";
-import { users, registrations, events } from "@/lib/db/schema";
+import { users, registrations, events, classes as classesTable } from "@/lib/db/schema";
 import type { Registration } from "@/lib/data";
 
 async function count(query: Promise<{ n: number }[]>): Promise<number> {
@@ -22,6 +22,22 @@ export type DashboardStats = {
   studio: number;
   newRegistrations: Registration[];
   paymentAlerts: Registration[];
+  // KPI row
+  totalRevenue: number;
+  activeStudents: number;
+  newRegistrationsCount: number;
+  overdueAmount: number;
+  // Needs attention
+  overdueCount: number;
+  unpaidCount: number;
+  lowSeatEventsCount: number;
+  // Charts
+  revenueTrend: { month: string; amount: number }[];
+  registrationsByLocation: { location: string; count: number }[];
+  paymentHealth: { paid: number; overdue: number; pending: number; onetime: number };
+  bookingMix: { classes: number; workshopsEvents: number; studio: number };
+  studentsTrend: { month: string; total: number }[];
+  classesMix: { online: number; offline: number; total: number };
 };
 
 const EMPTY: DashboardStats = {
@@ -36,53 +52,156 @@ const EMPTY: DashboardStats = {
   studio: 0,
   newRegistrations: [],
   paymentAlerts: [],
+  totalRevenue: 0,
+  activeStudents: 0,
+  newRegistrationsCount: 0,
+  overdueAmount: 0,
+  overdueCount: 0,
+  unpaidCount: 0,
+  lowSeatEventsCount: 0,
+  revenueTrend: [],
+  registrationsByLocation: [],
+  paymentHealth: { paid: 0, overdue: 0, pending: 0, onetime: 0 },
+  bookingMix: { classes: 0, workshopsEvents: 0, studio: 0 },
+  studentsTrend: [],
+  classesMix: { online: 0, offline: 0, total: 0 },
 };
 
-export async function getDashboardStats(): Promise<DashboardStats> {
+const MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+// Only 3 round trips against the DB (registrations, users, events) — every
+// other number below is derived from those in JS. The pool here caps at 5
+// connections (see lib/db/client.ts); a prior version of this function fired
+// ~17 queries in one Promise.all and blew through it under load.
+export async function getDashboardStats(location?: string): Promise<DashboardStats> {
   if (!hasDb || !db) return EMPTY;
   try {
-    const [
-      totalStudents,
-      classes,
-      workshops,
-      studio,
-      pendingBatch,
-      overdue,
-      revenueRows,
-      newRegistrations,
-      paymentAlerts,
-    ] = await Promise.all([
-      count(db.select(N).from(users).where(eq(users.role, "student"))),
-      count(db.select(N).from(registrations).where(eq(registrations.type, "class"))),
-      count(db.select(N).from(events).where(eq(events.isPast, false))),
-      count(db.select(N).from(registrations).where(eq(registrations.type, "studio"))),
-      count(
-        db
-          .select(N)
-          .from(registrations)
-          .where(and(eq(registrations.type, "class"), eq(registrations.status, "Pending Batch")))
-      ),
-      count(db.select(N).from(registrations).where(eq(registrations.paid, "overdue"))),
+    const locFilter: SQL = location ? eq(registrations.location, location) : sql`true`;
+
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const [allRegs, studentRows, allEvents, allClasses] = await Promise.all([
+      db.select().from(registrations).where(locFilter).orderBy(desc(registrations.createdAt)),
+      db.select({ createdAt: users.createdAt }).from(users).where(eq(users.role, "student")),
       db
-        .select({ sum: sql<number>`coalesce(sum(${registrations.amount}),0)::int` })
-        .from(registrations)
-        .where(eq(registrations.paid, "paid")),
-      db.select().from(registrations).orderBy(desc(registrations.createdAt)).limit(5),
-      db.select().from(registrations).where(eq(registrations.paid, "overdue")).limit(5),
+        .select()
+        .from(events)
+        .where(location ? eq(events.location, location) : sql`true`),
+      db
+        .select({ mode: classesTable.mode })
+        .from(classesTable)
+        .where(
+          location
+            ? and(eq(classesTable.active, true), eq(classesTable.location, location))
+            : eq(classesTable.active, true)
+        ),
     ]);
+    const totalStudents = studentRows.length;
+
+    const classes = allRegs.filter((r) => r.type === "class").length;
+    const studio = allRegs.filter((r) => r.type === "studio").length;
+    const pendingBatch = allRegs.filter((r) => r.type === "class" && r.status === "Pending Batch").length;
+    const overdueRows = allRegs.filter((r) => r.paid === "overdue");
+    const overdueCount = overdueRows.length;
+    const unpaidCount = allRegs.filter((r) => r.paid === "pending").length;
+    const activeStudents = new Set(
+      allRegs.filter((r) => r.status === "Active").map((r) => r.email)
+    ).size;
+    const newRegistrationsCount = allRegs.filter(
+      (r) => r.createdAt && new Date(r.createdAt) >= monthStart
+    ).length;
+    const totalRevenue = allRegs.filter((r) => r.paid === "paid").reduce((s, r) => s + r.amount, 0);
+    const overdueAmount = overdueRows.reduce((s, r) => s + r.amount, 0);
+    const newRegistrations = allRegs.slice(0, 5);
+    const paymentAlerts = overdueRows.slice(0, 5);
+
+    const workshops = allEvents.filter((e) => !e.isPast).length;
+    const lowSeatEventsCount = allEvents.filter(
+      (e) => !e.isPast && e.seatsLeft > 0 && e.seatsLeft <= 3
+    ).length;
+
+    // Revenue trend — last 6 months, filling gaps so the line has no holes.
+    const trendByMonth = new Map<string, number>();
+    for (const r of allRegs) {
+      if (r.paid !== "paid" || !r.createdAt) continue;
+      const key = new Date(r.createdAt).toISOString().slice(0, 7);
+      trendByMonth.set(key, (trendByMonth.get(key) ?? 0) + r.amount);
+    }
+    const revenueTrend: { month: string; amount: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      revenueTrend.push({ month: MONTH_LABELS[d.getMonth()], amount: trendByMonth.get(key) ?? 0 });
+    }
+
+    // Total students trend — cumulative headcount at the end of each of the last 6 months
+    // (not new signups per month), so the line shows how the total has actually grown.
+    const studentDates = studentRows
+      .map((s) => s.createdAt)
+      .filter((d): d is NonNullable<typeof d> => d != null)
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    const studentsTrend: { month: string; total: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const monthEnd = new Date(today.getFullYear(), today.getMonth() - i + 1, 0, 23, 59, 59);
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const total = studentDates.filter((sd) => new Date(sd) <= monthEnd).length;
+      studentsTrend.push({ month: MONTH_LABELS[d.getMonth()], total });
+    }
+
+    // Classes mix — active classes split by delivery mode, so the dashboard shows at a glance
+    // how many run online vs in-person (and the total count) without opening Classes.
+    const classesMix = {
+      online: allClasses.filter((c) => c.mode === "online").length,
+      offline: allClasses.filter((c) => c.mode === "offline").length,
+      total: allClasses.length,
+    };
+
+    const byLocationMap = new Map<string, number>();
+    for (const r of allRegs) byLocationMap.set(r.location, (byLocationMap.get(r.location) ?? 0) + 1);
+    const registrationsByLocation = Array.from(byLocationMap, ([location, count]) => ({ location, count })).sort(
+      (a, b) => b.count - a.count
+    );
+
+    const paymentHealth = { paid: 0, overdue: 0, pending: 0, onetime: 0 };
+    for (const r of allRegs) {
+      if (r.paid in paymentHealth) paymentHealth[r.paid as keyof typeof paymentHealth]++;
+    }
+
+    const bookingMix = { classes: 0, workshopsEvents: 0, studio: 0 };
+    for (const r of allRegs) {
+      if (r.type === "class") bookingMix.classes++;
+      else if (r.type === "workshop" || r.type === "event") bookingMix.workshopsEvents++;
+      else if (r.type === "studio") bookingMix.studio++;
+    }
 
     return {
       connected: true,
       totalStudents,
       classEnrollments: classes,
       pendingBatch,
-      revenue: revenueRows[0]?.sum ?? 0,
-      overdue,
+      revenue: totalRevenue,
+      overdue: overdueCount,
       classes,
       workshops,
       studio,
       newRegistrations: newRegistrations as unknown as Registration[],
       paymentAlerts: paymentAlerts as unknown as Registration[],
+      totalRevenue,
+      activeStudents,
+      newRegistrationsCount,
+      overdueAmount,
+      overdueCount,
+      unpaidCount,
+      lowSeatEventsCount,
+      revenueTrend,
+      registrationsByLocation,
+      paymentHealth,
+      bookingMix,
+      studentsTrend,
+      classesMix,
     };
   } catch (err) {
     console.error("[stats] dashboard query failed:", err);
@@ -136,10 +255,11 @@ export async function getPaymentStats(): Promise<PaymentStats> {
 export type StudioBookingView = {
   name: string;
   when: string; // detail string, already includes date/time/purpose
+  period: string | null; // raw date, YYYY-MM-DD when the booking flow stored one
   location: string;
   price: number;
   discountCode?: string | null;
-  paid: "paid" | "overdue" | "onetime";
+  paid: "paid" | "overdue" | "pending" | "onetime";
   status: string;
 };
 
@@ -163,6 +283,7 @@ export async function getStudioBookings(): Promise<{
       rows: rows.map((r) => ({
         name: r.name,
         when: r.detail || r.period || "",
+        period: r.period,
         location: r.location,
         price: r.amount ?? 0,
         discountCode: r.discountCode,

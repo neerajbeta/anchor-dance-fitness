@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, ilike, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   registrations,
@@ -12,8 +12,15 @@ import {
   locations,
   classes,
   categories,
+  levels,
   discounts,
   enquiries,
+  announcements,
+  roles,
+  permissions,
+  rolePermissions,
+  auditLogs,
+  eventMedia,
 } from "@/lib/db/schema";
 
 export class DbNotConfiguredError extends Error {
@@ -144,7 +151,7 @@ export type RegistrationInput = {
   mode?: "online" | "offline" | null;
   period?: string;
   plan?: string;
-  paid?: "paid" | "overdue" | "onetime";
+  paid?: "paid" | "overdue" | "pending" | "onetime";
   status?: string;
   statusTone?: string;
   /** Base price (SEK) before any discount — required to compute the charged amount. */
@@ -152,6 +159,7 @@ export type RegistrationInput = {
   /** Discount Master code the user entered at checkout, if any. */
   discountCode?: string;
   classId?: string; // used to resolve a scope="class" discount
+  eventId?: string; // used to resolve a scope="event"/"workshop" discount
 };
 
 export type CreateRegistrationResult = Awaited<ReturnType<typeof insertRegistration>>;
@@ -181,6 +189,7 @@ async function insertRegistration(input: RegistrationInput, amount: number, appl
     statusTone: input.statusTone ?? "ok",
     amount,
     discountCode: appliedCode,
+    eventId: input.eventId ?? null,
   } as const;
 
   await d.insert(registrations).values(row);
@@ -216,6 +225,8 @@ export async function createRegistration(input: RegistrationInput) {
       code: input.discountCode,
       category: input.category ?? undefined,
       classId: input.classId,
+      eventId: input.eventId,
+      bookingType: input.type,
     });
     if (resolved) {
       amount =
@@ -322,6 +333,49 @@ export async function deleteEvent(id: string) {
 
 export async function listEvents() {
   return requireDb().select().from(events).orderBy(desc(events.createdAt));
+}
+
+// Everyone who registered for this event/workshop. Only registrations created after eventId
+// support was added carry the link — older bookings predate the column and won't appear here.
+export async function getEventRegistrations(eventId: string) {
+  return requireDb()
+    .select({
+      id: registrations.id,
+      name: registrations.name,
+      email: registrations.email,
+      status: registrations.status,
+      statusTone: registrations.statusTone,
+      createdAt: registrations.createdAt,
+    })
+    .from(registrations)
+    .where(eq(registrations.eventId, eventId))
+    .orderBy(desc(registrations.createdAt));
+}
+
+// ───────────── Event media (photos/videos, admin-added by URL) ─────────────
+export async function listEventMedia(eventId: string) {
+  return requireDb()
+    .select()
+    .from(eventMedia)
+    .where(eq(eventMedia.eventId, eventId))
+    .orderBy(eventMedia.position);
+}
+
+export async function addEventMedia(input: { eventId: string; type: "photo" | "video"; url: string }) {
+  const d = requireDb();
+  const [{ n }] = await d
+    .select({ n: sql<number>`count(*)::int` })
+    .from(eventMedia)
+    .where(eq(eventMedia.eventId, input.eventId));
+  const [row] = await d
+    .insert(eventMedia)
+    .values({ eventId: input.eventId, type: input.type, url: input.url.trim(), position: n })
+    .returning();
+  return row;
+}
+
+export async function deleteEventMedia(id: string) {
+  await requireDb().delete(eventMedia).where(eq(eventMedia.id, id));
 }
 
 // ───────────── Students (search for Book on Behalf) ─────────────
@@ -444,6 +498,418 @@ export async function deleteCategory(id: string) {
   await requireDb().delete(categories).where(eq(categories.id, id));
 }
 
+// ───────────── Levels (admin-managed) ─────────────
+export async function listLevels() {
+  return requireDb().select().from(levels).where(eq(levels.active, true)).orderBy(levels.name);
+}
+
+export async function createLevel(name: string) {
+  const d = requireDb();
+  const [row] = await d
+    .insert(levels)
+    .values({ name: name.trim() })
+    .onConflictDoNothing({ target: levels.name })
+    .returning();
+  return row ?? null;
+}
+
+export async function updateLevel(id: string, patch: { name?: string }) {
+  const d = requireDb();
+  const [row] = await d
+    .update(levels)
+    .set({ ...(patch.name !== undefined ? { name: patch.name.trim() } : {}) })
+    .where(eq(levels.id, id))
+    .returning();
+  return row ?? null;
+}
+
+export async function deleteLevel(id: string) {
+  await requireDb().delete(levels).where(eq(levels.id, id));
+}
+
+// ───────────── Announcements (admin broadcasts to students) ─────────────
+export type AnnouncementInput = {
+  title: string;
+  message: string;
+  tone?: "info" | "warning" | "urgent";
+  expiresAt?: Date | null;
+};
+
+// Public/portal-facing: only announcements that are active and not yet expired.
+export async function listAnnouncements() {
+  return requireDb()
+    .select()
+    .from(announcements)
+    .where(
+      and(
+        eq(announcements.active, true),
+        or(isNull(announcements.expiresAt), gt(announcements.expiresAt, new Date())),
+      ),
+    )
+    .orderBy(desc(announcements.createdAt));
+}
+
+// Admin-facing: every announcement, including expired ones, so admins can edit/extend/remove them.
+export async function listAllAnnouncements() {
+  return requireDb().select().from(announcements).orderBy(desc(announcements.createdAt));
+}
+
+export async function createAnnouncement(input: AnnouncementInput) {
+  const d = requireDb();
+  const [row] = await d
+    .insert(announcements)
+    .values({
+      title: input.title.trim(),
+      message: input.message.trim(),
+      tone: input.tone ?? "info",
+      expiresAt: input.expiresAt ?? null,
+    })
+    .returning();
+  return row;
+}
+
+export async function updateAnnouncement(id: string, patch: Partial<AnnouncementInput>) {
+  const d = requireDb();
+  const [row] = await d
+    .update(announcements)
+    .set({
+      ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
+      ...(patch.message !== undefined ? { message: patch.message.trim() } : {}),
+      ...(patch.tone !== undefined ? { tone: patch.tone } : {}),
+      ...(patch.expiresAt !== undefined ? { expiresAt: patch.expiresAt } : {}),
+    })
+    .where(eq(announcements.id, id))
+    .returning();
+  return row ?? null;
+}
+
+export async function deleteAnnouncement(id: string) {
+  await requireDb().delete(announcements).where(eq(announcements.id, id));
+}
+
+// ───────────── Roles & Permissions (admin RBAC) ─────────────
+export type RoleInput = { name: string; description?: string | null; status?: "active" | "inactive" };
+
+export async function listRoles() {
+  const d = requireDb();
+  const rows = await d.select().from(roles).orderBy(roles.createdAt);
+  const counts = await d
+    .select({ roleId: users.roleId, n: sql<number>`count(*)::int` })
+    .from(users)
+    .where(sql`${users.roleId} is not null`)
+    .groupBy(users.roleId);
+  const countByRole = new Map(counts.map((c) => [c.roleId, c.n]));
+  return rows.map((r) => ({ ...r, userCount: countByRole.get(r.id) ?? 0 }));
+}
+
+export async function getRoleById(id: string) {
+  const [row] = await requireDb().select().from(roles).where(eq(roles.id, id));
+  return row ?? null;
+}
+
+export async function getRoleBySlug(slug: string) {
+  const [row] = await requireDb().select().from(roles).where(eq(roles.slug, slug));
+  return row ?? null;
+}
+
+function slugify(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+export async function createRole(input: RoleInput) {
+  const d = requireDb();
+  const slug = slugify(input.name);
+  const existing = await d.select({ id: roles.id }).from(roles).where(eq(roles.slug, slug));
+  if (existing.length > 0) throw new ConflictError("A role with this name already exists.");
+  const [row] = await d
+    .insert(roles)
+    .values({
+      name: input.name.trim(),
+      slug,
+      description: input.description?.trim() || null,
+      status: input.status ?? "active",
+    })
+    .returning();
+  return row;
+}
+
+export async function updateRole(id: string, patch: Partial<RoleInput>) {
+  const d = requireDb();
+  const role = await getRoleById(id);
+  if (!role) return null;
+  if (role.isSystemRole && patch.status === "inactive") {
+    throw new ConflictError("The Super Admin role cannot be deactivated.");
+  }
+  const [row] = await d
+    .update(roles)
+    .set({
+      ...(patch.name !== undefined ? { name: patch.name.trim(), slug: slugify(patch.name) } : {}),
+      ...(patch.description !== undefined ? { description: patch.description?.trim() || null } : {}),
+      ...(patch.status !== undefined ? { status: patch.status } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(roles.id, id))
+    .returning();
+  return row ?? null;
+}
+
+export async function deleteRole(id: string) {
+  const d = requireDb();
+  const role = await getRoleById(id);
+  if (!role) return;
+  if (role.isSystemRole) throw new ConflictError("System roles cannot be deleted.");
+  const [{ n }] = await d
+    .select({ n: sql<number>`count(*)::int` })
+    .from(users)
+    .where(eq(users.roleId, id));
+  if (n > 0) throw new ConflictError("This role is assigned to one or more users and cannot be deleted.");
+  await d.delete(roles).where(eq(roles.id, id));
+}
+
+export async function listPermissions() {
+  return requireDb().select().from(permissions).orderBy(permissions.module, permissions.slug);
+}
+
+export async function getRolePermissionSlugs(roleId: string): Promise<Set<string>> {
+  const rows = await requireDb()
+    .select({ slug: permissions.slug })
+    .from(rolePermissions)
+    .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+    .where(eq(rolePermissions.roleId, roleId));
+  return new Set(rows.map((r) => r.slug));
+}
+
+// Replaces a role's entire permission set in one transaction. The Super Admin role is always
+// full-access and cannot be edited here (enforced at the API layer too).
+export async function setRolePermissions(roleId: string, permissionIds: string[]) {
+  const d = requireDb();
+  await d.transaction(async (tx) => {
+    await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
+    if (permissionIds.length > 0) {
+      await tx.insert(rolePermissions).values(permissionIds.map((permissionId) => ({ roleId, permissionId })));
+    }
+  });
+}
+
+// Ensures every permission in the catalog is granted to the Super Admin role, so "full access"
+// holds automatically as new modules/permissions are added — no manual re-grant needed.
+export async function syncSuperAdminPermissions() {
+  const d = requireDb();
+  const [superAdmin] = await d.select().from(roles).where(eq(roles.slug, "super-admin"));
+  if (!superAdmin) return;
+  const granted = await getRolePermissionSlugs(superAdmin.id);
+  const allPerms = await d.select({ id: permissions.id, slug: permissions.slug }).from(permissions);
+  const missing = allPerms.filter((p) => !granted.has(p.slug)).map((p) => p.id);
+  if (missing.length > 0) {
+    await d.insert(rolePermissions).values(missing.map((permissionId) => ({ roleId: superAdmin.id, permissionId })));
+  }
+}
+
+// ───────────── Admin-panel users (User Management module) ─────────────
+export type AdminUserInput = {
+  name: string;
+  email: string;
+  password?: string;
+  roleId: string;
+  status?: "active" | "inactive";
+};
+
+export type ListAdminUsersOpts = {
+  search?: string;
+  roleId?: string;
+  status?: "active" | "inactive";
+  page?: number;
+  pageSize?: number;
+  sortBy?: "name" | "email" | "createdAt" | "lastLoginAt";
+  sortDir?: "asc" | "desc";
+};
+
+// Admin-panel accounts only — i.e. every user with a roleId assigned. Students (role='student',
+// roleId always null) never appear here; this module never touches the student directory.
+export async function listAdminUsers(opts: ListAdminUsersOpts = {}) {
+  const d = requireDb();
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+  const conds = [sql`${users.roleId} is not null`];
+  if (opts.search?.trim()) {
+    const q = `%${opts.search.trim()}%`;
+    conds.push(or(ilike(users.name, q), ilike(users.email, q))!);
+  }
+  if (opts.roleId) conds.push(eq(users.roleId, opts.roleId));
+  if (opts.status) conds.push(eq(users.status, opts.status));
+  const where = and(...conds);
+
+  const sortCol =
+    opts.sortBy === "email"
+      ? users.email
+      : opts.sortBy === "lastLoginAt"
+        ? users.lastLoginAt
+        : opts.sortBy === "createdAt"
+          ? users.createdAt
+          : users.name;
+  const orderExpr = opts.sortDir === "desc" ? desc(sortCol) : sortCol;
+
+  const [rows, [{ n }]] = await Promise.all([
+    d
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        status: users.status,
+        roleId: users.roleId,
+        roleName: roles.name,
+        createdAt: users.createdAt,
+        lastLoginAt: users.lastLoginAt,
+      })
+      .from(users)
+      .leftJoin(roles, eq(users.roleId, roles.id))
+      .where(where)
+      .orderBy(orderExpr)
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    d.select({ n: sql<number>`count(*)::int` }).from(users).where(where),
+  ]);
+  return { rows, total: n, page, pageSize };
+}
+
+export async function getAdminUserById(id: string) {
+  const [row] = await requireDb()
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      status: users.status,
+      roleId: users.roleId,
+      roleName: roles.name,
+      createdAt: users.createdAt,
+      lastLoginAt: users.lastLoginAt,
+    })
+    .from(users)
+    .leftJoin(roles, eq(users.roleId, roles.id))
+    .where(and(eq(users.id, id), sql`${users.roleId} is not null`));
+  return row ?? null;
+}
+
+// Explicit column list — never includes passwordHash, so a leak here can't happen by omission.
+const ADMIN_USER_SAFE_COLUMNS = {
+  id: users.id,
+  name: users.name,
+  email: users.email,
+  status: users.status,
+  roleId: users.roleId,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt,
+  lastLoginAt: users.lastLoginAt,
+};
+
+export async function createAdminUser(input: AdminUserInput) {
+  const d = requireDb();
+  const email = input.email.trim().toLowerCase();
+  const existing = await d.select({ id: users.id }).from(users).where(eq(users.email, email));
+  if (existing.length > 0) throw new ConflictError("A user with this email already exists.");
+  const passwordHash = await bcrypt.hash(input.password!, 10);
+  const [row] = await d
+    .insert(users)
+    .values({
+      name: input.name.trim(),
+      email,
+      passwordHash,
+      role: "admin",
+      roleId: input.roleId,
+      status: input.status ?? "active",
+    })
+    .returning(ADMIN_USER_SAFE_COLUMNS);
+  return row;
+}
+
+export async function updateAdminUser(
+  id: string,
+  patch: { name?: string; email?: string; roleId?: string; status?: "active" | "inactive" }
+) {
+  const d = requireDb();
+  if (patch.email) {
+    const email = patch.email.trim().toLowerCase();
+    const existing = await d
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.email, email), sql`${users.id} != ${id}`));
+    if (existing.length > 0) throw new ConflictError("A user with this email already exists.");
+  }
+  const [row] = await d
+    .update(users)
+    .set({
+      ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
+      ...(patch.email !== undefined ? { email: patch.email.trim().toLowerCase() } : {}),
+      ...(patch.roleId !== undefined ? { roleId: patch.roleId } : {}),
+      ...(patch.status !== undefined ? { status: patch.status } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, id))
+    .returning(ADMIN_USER_SAFE_COLUMNS);
+  return row ?? null;
+}
+
+export async function deleteAdminUser(id: string) {
+  await requireDb().delete(users).where(and(eq(users.id, id), sql`${users.roleId} is not null`));
+}
+
+// Generates and stores a one-time temporary password (no transactional email is wired up in
+// this app yet), returned once to the admin to hand to the user out of band.
+export async function resetAdminUserPassword(id: string) {
+  const d = requireDb();
+  const tempPassword = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6).toUpperCase();
+  const passwordHash = await bcrypt.hash(tempPassword, 10);
+  await d.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, id));
+  return tempPassword;
+}
+
+// Number of active users currently holding a given (system) role — used to guard against
+// deactivating/deleting/demoting the last remaining Super Admin.
+export async function countActiveUsersInRole(roleId: string) {
+  const [{ n }] = await requireDb()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(users)
+    .where(and(eq(users.roleId, roleId), eq(users.status, "active")));
+  return n;
+}
+
+export async function recordAuditLog(entry: {
+  userId: string | null;
+  actorName: string;
+  action: string;
+  module: string;
+  targetType?: string;
+  targetId?: string;
+  oldValues?: unknown;
+  newValues?: unknown;
+}) {
+  try {
+    await requireDb()
+      .insert(auditLogs)
+      .values({
+        userId: entry.userId,
+        actorName: entry.actorName,
+        action: entry.action,
+        module: entry.module,
+        targetType: entry.targetType ?? null,
+        targetId: entry.targetId ?? null,
+        oldValues: entry.oldValues !== undefined ? JSON.stringify(entry.oldValues) : null,
+        newValues: entry.newValues !== undefined ? JSON.stringify(entry.newValues) : null,
+      });
+  } catch (err) {
+    // Audit logging must never break the primary action.
+    console.error("[audit] failed to record entry:", err);
+  }
+}
+
+export async function listAuditLogs(limit = 100) {
+  return requireDb().select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(limit);
+}
+
 // ───────────── Classes (admin-managed, fixed time) ─────────────
 export type ClassInput = {
   name: string;
@@ -463,6 +929,53 @@ export type ClassInput = {
 
 export async function listClasses() {
   return requireDb().select().from(classes).where(eq(classes.active, true)).orderBy(classes.name);
+}
+
+const JS_DAY_TO_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// How many concrete sessions a class actually runs between its start/end date, given its
+// selected weekdays — mirrors the same computation the Classes admin form shows live. A
+// one-off class (no `days`) always counts as exactly 1 session.
+function countClassSessions(startDate: string | null, endDate: string | null, days: string | null): number {
+  if (!days || !days.trim()) return startDate ? 1 : 0;
+  if (!startDate || !endDate) return 0;
+  const dayLabels = new Set(days.split(",").map((d) => d.trim()));
+  const start = new Date(startDate + "T00:00:00");
+  const end = new Date(endDate + "T00:00:00");
+  if (end < start) return 0;
+  let n = 0;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    if (dayLabels.has(JS_DAY_TO_LABEL[d.getDay()])) n++;
+  }
+  return n;
+}
+
+// Reports drill-down: every active class alongside how many concrete sessions it actually
+// runs, not just the catalog count. "Active Classes" (the count) vs "Active Sessions" (the sum
+// of real occurrences) are different numbers, and admins asked to see both.
+export async function getActiveClassSessions(location?: string) {
+  const d = requireDb();
+  const rows = await d
+    .select({
+      id: classes.id,
+      name: classes.name,
+      category: classes.category,
+      location: classes.location,
+      mode: classes.mode,
+      days: classes.days,
+      startDate: classes.startDate,
+      endDate: classes.endDate,
+    })
+    .from(classes)
+    .where(location ? and(eq(classes.active, true), eq(classes.location, location)) : eq(classes.active, true))
+    .orderBy(classes.name);
+
+  const withCounts = rows.map((r) => ({
+    ...r,
+    sessionCount: countClassSessions(r.startDate, r.endDate, r.days),
+  }));
+  const totalSessions = withCounts.reduce((sum, r) => sum + r.sessionCount, 0);
+  return { classes: withCounts, totalSessions };
 }
 
 export async function createClass(input: ClassInput) {
@@ -523,15 +1036,21 @@ export async function deleteClass(id: string) {
 }
 
 // ───────────── Discounts (Discount Master) ─────────────
+export type DiscountScope = "all" | "category" | "class" | "event" | "workshop" | "studio";
+
 export type DiscountInput = {
   name: string;
   code: string;
   type?: "percent" | "flat";
   percent?: number;
   flatAmount?: number;
-  scope: "all" | "category" | "class";
+  scope: DiscountScope;
   target?: string;
+  validFrom?: string | null;
+  validUntil?: string | null;
 };
+
+const SCOPES_WITHOUT_TARGET: DiscountScope[] = ["all", "studio"];
 
 export async function listDiscounts() {
   return requireDb().select().from(discounts).where(eq(discounts.active, true)).orderBy(discounts.code);
@@ -551,7 +1070,9 @@ export async function createDiscount(input: DiscountInput) {
       percent: pct,
       flatAmount: flat,
       scope: input.scope,
-      target: input.scope === "all" ? null : input.target ?? null,
+      target: SCOPES_WITHOUT_TARGET.includes(input.scope) ? null : input.target ?? null,
+      validFrom: input.validFrom || null,
+      validUntil: input.validUntil || null,
     })
     .onConflictDoNothing({ target: discounts.code })
     .returning();
@@ -575,10 +1096,12 @@ export async function updateDiscount(id: string, patch: Partial<DiscountInput>) 
       ...(type === "flat" ? { percent: null } : {}),
       ...(patch.scope !== undefined ? { scope: patch.scope } : {}),
       ...(patch.scope !== undefined
-        ? { target: patch.scope === "all" ? null : patch.target ?? null }
+        ? { target: SCOPES_WITHOUT_TARGET.includes(patch.scope) ? null : patch.target ?? null }
         : patch.target !== undefined
           ? { target: patch.target ?? null }
           : {}),
+      ...(patch.validFrom !== undefined ? { validFrom: patch.validFrom || null } : {}),
+      ...(patch.validUntil !== undefined ? { validUntil: patch.validUntil || null } : {}),
     })
     .where(eq(discounts.id, id))
     .returning();
@@ -594,6 +1117,8 @@ export async function resolveDiscount(opts: {
   code?: string;
   category?: string;
   classId?: string;
+  eventId?: string;
+  bookingType?: "class" | "workshop" | "event" | "studio";
 }): Promise<{ code: string; type: "percent" | "flat"; percent: number; flatAmount: number } | null> {
   if (!opts.code) return null;
   const d = requireDb();
@@ -605,6 +1130,11 @@ export async function resolveDiscount(opts: {
   if (!disc) return null;
   if (disc.scope === "category" && disc.target !== opts.category) return null;
   if (disc.scope === "class" && disc.target !== opts.classId) return null;
+  if ((disc.scope === "event" || disc.scope === "workshop") && disc.target !== opts.eventId) return null;
+  if (disc.scope === "studio" && opts.bookingType !== "studio") return null;
+  const today = new Date().toISOString().slice(0, 10);
+  if (disc.validFrom && today < disc.validFrom) return null;
+  if (disc.validUntil && today > disc.validUntil) return null;
   return {
     code: disc.code,
     type: disc.type,

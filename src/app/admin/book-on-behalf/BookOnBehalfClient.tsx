@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { Avatar, SectionHead, toneClass } from "@/components/ui";
-import { CATEGORIES, LEVELS, PLANS, type Registration } from "@/lib/data";
+import { CATEGORIES, LEVELS as LEVELS_FALLBACK, PLANS, type Registration } from "@/lib/data";
 
 type Student = {
   id: string;
@@ -66,6 +66,7 @@ export function BookOnBehalfClient({
   const [locations, setLocations] = useState<Location[]>([]);
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [categoryList, setCategoryList] = useState<{ id: string; name: string }[]>([]);
+  const [levelList, setLevelList] = useState<{ id: string; name: string }[]>([]);
   const [classId, setClassId] = useState("");
 
   const [coupon, setCoupon] = useState("");
@@ -82,6 +83,7 @@ export function BookOnBehalfClient({
     fetch("/api/locations").then((r) => r.json()).then((j) => setLocations(j.data ?? []));
     fetch("/api/classes").then((r) => r.json()).then((j) => setClasses(j.data ?? []));
     fetch("/api/categories").then((r) => r.json()).then((j) => setCategoryList(j.data ?? []));
+    fetch("/api/levels").then((r) => r.json()).then((j) => setLevelList(j.data ?? []));
   }, []);
 
   const available = useMemo(
@@ -173,7 +175,7 @@ export function BookOnBehalfClient({
       mode: form.mode,
       period: `${form.start} – ${form.end}`,
       plan: PLANS.find((p) => p.id === form.plan)?.name ?? form.plan,
-      paid: form.payment === "waived" ? "onetime" : "paid",
+      paid: form.payment === "waived" ? "onetime" : form.payment === "link" ? "pending" : "paid",
       status: "Pending Batch",
       statusTone: "warn",
       baseAmount,
@@ -484,7 +486,7 @@ export function BookOnBehalfClient({
               <div>
                 <label className="field-label">Level *</label>
                 <select className="field" value={form.level} onChange={(e) => set("level", e.target.value)}>
-                  {LEVELS.map((l) => (
+                  {(levelList.length ? levelList.map((l) => l.name) : LEVELS_FALLBACK).map((l) => (
                     <option key={l}>{l}</option>
                   ))}
                 </select>

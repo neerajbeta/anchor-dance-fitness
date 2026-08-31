@@ -1,58 +1,128 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { Avatar, SectionHead, toneClass } from "@/components/ui";
-import { LocTabs } from "@/components/LocTabs";
+import { DashboardLocationFilter } from "@/components/DashboardLocationFilter";
+import { RevenueTrendChart } from "@/components/charts/RevenueTrendChart";
+import { LocationBarChart } from "@/components/charts/LocationBarChart";
+import { PaymentHealthChart } from "@/components/charts/PaymentHealthChart";
+import { BookingMixChart } from "@/components/charts/BookingMixChart";
+import { StudentsTrendChart } from "@/components/charts/StudentsTrendChart";
+import { ClassesMixChart } from "@/components/charts/ClassesMixChart";
 import { getDashboardStats } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminDashboard() {
-  const s = await getDashboardStats();
+export default async function AdminDashboard({
+  searchParams,
+}: {
+  searchParams: { location?: string };
+}) {
+  const location = searchParams.location || undefined;
+  const s = await getDashboardStats(location);
 
   return (
     <AdminShell>
       <SectionHead
-        title="Dashboard"
-        sub="Live overview · All locations"
+        title="Admin Dashboard"
+        sub={location ? `Live overview · ${location}` : "Live overview · All locations"}
         right={
-          s.connected ? (
-            <span className="badge badge-ok" title="Reading from PostgreSQL">
-              ● Live database
-            </span>
-          ) : (
-            <span className="badge badge-warn">● Sample data</span>
-          )
+          <div className="flex items-center gap-2">
+            {s.connected ? (
+              <span className="badge badge-ok" title="Reading from PostgreSQL">
+                ● Live database
+              </span>
+            ) : (
+              <span className="badge badge-warn">● Sample data</span>
+            )}
+            <Suspense fallback={<div className="field w-auto text-[13px]">Location: All</div>}>
+              <DashboardLocationFilter />
+            </Suspense>
+          </div>
         }
       />
-      <LocTabs />
 
       {/* KPI row */}
       <div className="mb-5 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-        <Kpi label="Total Students" value={String(s.totalStudents)} sub="Registered students" />
+        <Kpi label="Total Revenue" value={`SEK ${s.totalRevenue.toLocaleString()}`} sub="Confirmed payments" />
+        <Kpi label="Active Students" value={String(s.activeStudents)} sub="Currently active" />
+        <Kpi label="New Registrations" value={String(s.newRegistrationsCount)} sub="This month" />
         <Kpi
-          label="Active Class Enrollments"
-          value={String(s.classEnrollments)}
-          sub={`${s.pendingBatch} pending batch`}
+          label="Overdue Payments"
+          value={`SEK ${s.overdueAmount.toLocaleString()}`}
+          sub={`${s.overdueCount} registration${s.overdueCount === 1 ? "" : "s"}`}
+          danger
         />
-        <Kpi label="Revenue" value={`SEK ${s.revenue.toLocaleString()}`} sub="Confirmed payments" />
-        <Kpi label="Overdue Payments" value={String(s.overdue)} sub="Reminders pending" danger />
       </div>
 
-      {/* Booking type breakdown */}
-      <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-        <BreakCard color="#3B82C4" title="💃 Classes" value={String(s.classes)} sub="Class Bookings" />
-        <BreakCard
-          color="#E0972B"
-          title="🎭 Workshops & Events"
-          value={String(s.workshops)}
-          sub="Upcoming Published"
-        />
-        <BreakCard
-          color="#8B5CF6"
-          title="🏛️ Studio Bookings"
-          value={String(s.studio)}
-          sub="Studio Bookings"
-        />
+      {/* Charts row 1 */}
+      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="card">
+          <div className="card-title">📈 Revenue Trend</div>
+          <RevenueTrendChart data={s.revenueTrend} />
+        </div>
+        <div className="card">
+          <div className="card-title">📍 Registrations by Location</div>
+          <LocationBarChart data={s.registrationsByLocation} />
+        </div>
+      </div>
+
+      {/* Charts row 2 */}
+      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="card">
+          <div className="card-title">💳 Payment Health</div>
+          <PaymentHealthChart data={s.paymentHealth} />
+        </div>
+        <div className="card">
+          <div className="card-title">🥯 Booking Mix</div>
+          <BookingMixChart data={s.bookingMix} />
+        </div>
+      </div>
+
+      {/* Charts row 3 */}
+      <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="card">
+          <div className="card-title">🧑‍🎓 Total Students Trend</div>
+          <StudentsTrendChart data={s.studentsTrend} />
+        </div>
+        <div className="card">
+          <div className="card-title">💃 Classes — Online vs In-Person</div>
+          <ClassesMixChart data={s.classesMix} />
+        </div>
+      </div>
+
+      {/* Needs attention */}
+      <div className="card mb-5">
+        <div className="card-title">🚨 Needs Attention</div>
+        <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+          <AttentionTile
+            icon="🗓️"
+            label="Pending Batch"
+            value={s.pendingBatch}
+            href="/admin/registrations"
+          />
+          <AttentionTile
+            icon="⚠️"
+            label="Overdue Payments"
+            value={s.overdueCount}
+            href="/admin/payments"
+            danger={s.overdueCount > 0}
+          />
+          <AttentionTile
+            icon="📩"
+            label="Unpaid (Link Sent)"
+            value={s.unpaidCount}
+            href="/admin/payments"
+            danger={s.unpaidCount > 0}
+          />
+          <AttentionTile
+            icon="🪑"
+            label="Low-seat Events"
+            value={s.lowSeatEventsCount}
+            href="/admin/events"
+            danger={s.lowSeatEventsCount > 0}
+          />
+        </div>
       </div>
 
       {/* Two panels */}
@@ -156,22 +226,31 @@ function Kpi({
   );
 }
 
-function BreakCard({
-  color,
-  title,
+function AttentionTile({
+  icon,
+  label,
   value,
-  sub,
+  href,
+  danger,
 }: {
-  color: string;
-  title: string;
-  value: string;
-  sub: string;
+  icon: string;
+  label: string;
+  value: number;
+  href: string;
+  danger?: boolean;
 }) {
   return (
-    <div className="card" style={{ borderTop: `3px solid ${color}` }}>
-      <div className="card-title">{title}</div>
-      <div className="font-display text-3xl font-extrabold text-ink">{value}</div>
-      <div className="text-[13px] text-muted">{sub}</div>
-    </div>
+    <Link
+      href={href}
+      className={`rounded-lg border-[1.5px] p-3.5 transition-colors ${
+        danger ? "border-danger/30 bg-danger/5 hover:border-danger/50" : "border-line bg-white hover:border-brand-400"
+      }`}
+    >
+      <div className="mb-1 text-lg">{icon}</div>
+      <div className={`font-display text-2xl font-extrabold ${danger ? "text-danger" : "text-ink"}`}>
+        {value}
+      </div>
+      <div className="text-[11px] font-semibold text-muted">{label}</div>
+    </Link>
   );
 }

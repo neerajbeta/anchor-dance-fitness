@@ -1,9 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
-import { SectionHead } from "@/components/ui";
+import { SectionHead, toneClass } from "@/components/ui";
 import { type EventItem } from "@/lib/data";
 import { LocationSelect } from "@/components/LocationSelect";
 
@@ -30,6 +30,19 @@ export function EventsClient({
   const [startT, setStartT] = useState("");
   const [endT, setEndT] = useState("");
   const [editing, setEditing] = useState<EventItem | null>(null);
+  const [typeFilter, setTypeFilter] = useState<"all" | "workshop" | "event">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "upcoming" | "past">("all");
+  const [locationFilter, setLocationFilter] = useState("all");
+
+  const locationOptions = Array.from(new Set(events.map((e) => e.location))).sort();
+
+  const filteredEvents = events.filter((e) => {
+    if (typeFilter !== "all" && e.kind !== typeFilter) return false;
+    if (statusFilter === "upcoming" && e.past) return false;
+    if (statusFilter === "past" && !e.past) return false;
+    if (locationFilter !== "all" && e.location !== locationFilter) return false;
+    return true;
+  });
 
   function openCreate() {
     setEditing(null);
@@ -141,13 +154,41 @@ export function EventsClient({
       />
 
       <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border-[1.5px] border-line bg-white px-4 py-3.5 shadow-card">
-        <FilterGroup label="Type:" opts={["All", "🎭 Workshops", "⭐ Events"]} />
+        <FilterGroup
+          label="Type:"
+          opts={[
+            { value: "all", label: "All" },
+            { value: "workshop", label: "🎭 Workshops" },
+            { value: "event", label: "⭐ Events" },
+          ]}
+          active={typeFilter}
+          onChange={(v) => setTypeFilter(v as typeof typeFilter)}
+        />
         <div className="mx-1 h-6 w-px bg-line" />
-        <FilterGroup label="Status:" opts={["All", "Upcoming", "Past"]} />
+        <FilterGroup
+          label="Status:"
+          opts={[
+            { value: "all", label: "All" },
+            { value: "upcoming", label: "Upcoming" },
+            { value: "past", label: "Past" },
+          ]}
+          active={statusFilter}
+          onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+        />
+        <div className="mx-1 h-6 w-px bg-line" />
+        <FilterGroup
+          label="Location:"
+          opts={[
+            { value: "all", label: "All" },
+            ...locationOptions.map((loc) => ({ value: loc, label: loc })),
+          ]}
+          active={locationFilter}
+          onChange={setLocationFilter}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {events.map((e) => (
+        {filteredEvents.map((e) => (
           <EventAdminCard key={e.id} e={e} onDelete={handleDelete} onEdit={openEdit} />
         ))}
 
@@ -161,11 +202,17 @@ export function EventsClient({
         </button>
       </div>
 
-      {events.length === 0 && (
+      {events.length === 0 ? (
         <p className="mt-4 text-center text-[13px] text-muted">
           No events yet — click <span className="font-semibold text-brand-600">Create New Event</span>{" "}
           to publish your first workshop or event.
         </p>
+      ) : (
+        filteredEvents.length === 0 && (
+          <p className="mt-4 text-center text-[13px] text-muted">
+            No events match these filters.
+          </p>
+        )
       )}
 
       {modal && (
@@ -353,6 +400,16 @@ export function EventsClient({
   );
 }
 
+type EventRegistration = {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  statusTone: string;
+  createdAt: string;
+};
+type EventMediaItem = { id: string; type: "photo" | "video"; url: string };
+
 function EventAdminCard({
   e,
   onDelete,
@@ -364,6 +421,60 @@ function EventAdminCard({
 }) {
   const accent = e.kind === "workshop" ? "#E0972B" : "#8B5CF6";
   const registered = Math.max(0, e.seatsTotal - e.seatsLeft);
+
+  const [showRegs, setShowRegs] = useState(false);
+  const [regs, setRegs] = useState<EventRegistration[] | null>(null);
+
+  const [showMedia, setShowMedia] = useState(false);
+  const [media, setMedia] = useState<EventMediaItem[] | null>(null);
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [mediaType, setMediaType] = useState<"photo" | "video">("photo");
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [mediaBusy, setMediaBusy] = useState(false);
+
+  useEffect(() => {
+    if (showRegs && regs === null) {
+      fetch(`/api/events/${e.id}/registrations`)
+        .then((r) => r.json())
+        .then((j) => setRegs(j.data ?? []));
+    }
+  }, [showRegs, regs, e.id]);
+
+  useEffect(() => {
+    if (showMedia && media === null) {
+      fetch(`/api/events/${e.id}/media`)
+        .then((r) => r.json())
+        .then((j) => setMedia(j.data ?? []));
+    }
+  }, [showMedia, media, e.id]);
+
+  async function addMedia(ev: React.FormEvent<HTMLFormElement>) {
+    ev.preventDefault();
+    setMediaBusy(true);
+    setMediaError(null);
+    try {
+      const res = await fetch(`/api/events/${e.id}/media`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: mediaUrl, type: mediaType }),
+      });
+      const jr = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(jr.error || "Failed to add media");
+      setMedia((prev) => [...(prev ?? []), jr.data]);
+      setMediaUrl("");
+    } catch (err) {
+      setMediaError(err instanceof Error ? err.message : "Failed to add media");
+    } finally {
+      setMediaBusy(false);
+    }
+  }
+
+  async function removeMedia(mediaId: string) {
+    if (!confirm("Remove this media item?")) return;
+    const res = await fetch(`/api/events/${e.id}/media/${mediaId}`, { method: "DELETE" });
+    if (res.ok) setMedia((prev) => (prev ?? []).filter((m) => m.id !== mediaId));
+  }
+
   return (
     <div
       className="overflow-hidden rounded-xl border border-line/70 bg-white shadow-card"
@@ -400,12 +511,104 @@ function EventAdminCard({
           <span className={`badge ${e.mode === "online" ? "badge-info" : "badge-ok"}`}>
             {e.mode === "online" ? "💻 Online" : "🏃 In-Person"}
           </span>
-          <span className="badge badge-gray">
-            {registered} / {e.seatsTotal} registered
-          </span>
+          <button
+            className="badge badge-gray"
+            onClick={() => setShowRegs((v) => !v)}
+            title="View registered students"
+          >
+            👥 {registered} / {e.seatsTotal} registered
+          </button>
         </div>
+
+        {showRegs && (
+          <div className="mb-3 rounded-lg border-[1.5px] border-line bg-cream/40 p-2.5">
+            {regs === null ? (
+              <div className="text-[11px] text-muted">Loading…</div>
+            ) : regs.length === 0 ? (
+              <div className="text-[11px] text-muted">
+                No registrations linked to this event yet.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {regs.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between text-[12px]">
+                    <div>
+                      <span className="font-semibold text-ink">{r.name}</span>{" "}
+                      <span className="text-muted">{r.email}</span>
+                    </div>
+                    <span className={`badge ${toneClass[r.statusTone] ?? "badge-gray"}`}>{r.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      <div className="px-3.5 pb-3.5 text-[11px] text-muted">No media uploaded yet.</div>
+
+      <div className="border-t border-line/70 px-3.5 py-2.5">
+        <button
+          className="text-[11px] font-semibold text-brand-600"
+          onClick={() => setShowMedia((v) => !v)}
+        >
+          {showMedia ? "Hide media" : "📷 Manage media"}
+        </button>
+
+        {showMedia && (
+          <div className="mt-2.5">
+            {media === null ? (
+              <div className="text-[11px] text-muted">Loading…</div>
+            ) : media.length === 0 ? (
+              <div className="mb-2 text-[11px] text-muted">No media added yet.</div>
+            ) : (
+              <div className="mb-2 flex flex-col gap-1.5">
+                {media.map((m) => (
+                  <div
+                    key={m.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border-[1.5px] border-line bg-white px-2.5 py-1.5"
+                  >
+                    <a
+                      href={m.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate text-[11px] text-brand-600 hover:underline"
+                    >
+                      {m.type === "video" ? "🎬" : "📷"} {m.url}
+                    </a>
+                    <button
+                      className="flex-shrink-0 text-[11px] text-danger"
+                      onClick={() => removeMedia(m.id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={addMedia} className="flex flex-col gap-1.5 sm:flex-row">
+              <input
+                className="field flex-1 text-[12px]"
+                placeholder="Paste photo or video URL…"
+                value={mediaUrl}
+                onChange={(ev) => setMediaUrl(ev.target.value)}
+                required
+              />
+              <select
+                className="field w-auto text-[12px]"
+                value={mediaType}
+                onChange={(ev) => setMediaType(ev.target.value as "photo" | "video")}
+              >
+                <option value="photo">📷 Photo</option>
+                <option value="video">🎬 Video</option>
+              </select>
+              <button className={`btn btn-primary btn-sm ${mediaBusy ? "is-disabled" : ""}`}>
+                Add
+              </button>
+            </form>
+            {mediaError && <div className="mt-1.5 text-[11px] font-semibold text-danger">{mediaError}</div>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -445,24 +648,33 @@ function Toggle({
   );
 }
 
-function FilterGroup({ label, opts }: { label: string; opts: string[] }) {
-  const [active, setActive] = useState(0);
+function FilterGroup({
+  label,
+  opts,
+  active,
+  onChange,
+}: {
+  label: string;
+  opts: { value: string; label: string }[];
+  active: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <>
       <span className="whitespace-nowrap text-[11px] font-bold uppercase tracking-wide text-muted">
         {label}
       </span>
-      {opts.map((o, i) => (
+      {opts.map((o) => (
         <button
-          key={o}
-          onClick={() => setActive(i)}
+          key={o.value}
+          onClick={() => onChange(o.value)}
           className={`rounded-full border-[1.5px] px-3 py-1 text-xs font-semibold transition-colors ${
-            active === i
+            active === o.value
               ? "border-ink bg-ink text-white"
               : "border-line bg-white text-slate hover:border-brand-400 hover:text-brand-600"
           }`}
         >
-          {o}
+          {o.label}
         </button>
       ))}
     </>

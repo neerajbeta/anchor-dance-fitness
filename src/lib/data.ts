@@ -36,7 +36,7 @@ export type Registration = {
   mode?: "online" | "offline";
   period: string;
   plan: string;
-  paid: "paid" | "overdue" | "onetime";
+  paid: "paid" | "overdue" | "pending" | "onetime";
   status: string;
   statusTone: "ok" | "warn" | "danger" | "info" | "gray";
   amount?: number;

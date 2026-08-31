@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/api";
+import { requirePermission } from "@/lib/auth/permissions";
 import { createEvent, listEvents, DbNotConfiguredError, ConflictError } from "@/lib/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("events.view");
   if (!auth.ok) return auth.response;
   try {
     return NextResponse.json({ data: await listEvents() });
@@ -16,7 +16,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("events.create");
   if (!auth.ok) return auth.response;
   try {
     const b = await req.json();

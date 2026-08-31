@@ -13,15 +13,57 @@ import {
 // ───────────────────────── Enums ─────────────────────────
 export const bookingTypeEnum = pgEnum("booking_type", ["class", "workshop", "event", "studio"]);
 export const modeEnum = pgEnum("mode", ["online", "offline"]);
-export const paymentStatusEnum = pgEnum("payment_status", ["paid", "overdue", "onetime"]);
+export const paymentStatusEnum = pgEnum("payment_status", ["paid", "overdue", "pending", "onetime"]);
 export const roleEnum = pgEnum("role", ["student", "admin", "coach"]);
 export const paymentMethodEnum = pgEnum("payment_method", ["swish", "stripe", "external", "waived"]);
 export const paymentStateEnum = pgEnum("payment_state", ["pending", "succeeded", "failed", "refunded"]);
 export const bookingStatusEnum = pgEnum("booking_status", ["pending", "confirmed", "cancelled", "waitlisted"]);
 export const planIntervalEnum = pgEnum("plan_interval", ["demo", "monthly", "quarterly", "biannual", "annual", "onetime"]);
 export const relationshipEnum = pgEnum("relationship", ["child", "spouse", "sibling", "other"]);
-export const discountScopeEnum = pgEnum("discount_scope", ["all", "category", "class"]);
+export const discountScopeEnum = pgEnum("discount_scope", [
+  "all",
+  "category",
+  "class",
+  "event",
+  "workshop",
+  "studio",
+]);
 export const discountTypeEnum = pgEnum("discount_type", ["percent", "flat"]);
+export const userStatusEnum = pgEnum("user_status", ["active", "inactive"]);
+
+// ───────────────────────── Roles & Permissions (admin RBAC) ─────────────────────────
+// A "role" here governs what an admin-panel account (role='admin'/'coach' on `users`) can
+// see/do once logged in — separate from the coarse users.role enum, which only gates whether
+// an account can reach the admin login at all. Super Admin / Admin / Manager / Staff are rows
+// here, not enum values, so new roles can be added without a schema change.
+export const roles = pgTable("roles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(), // e.g. "super-admin"
+  description: text("description"),
+  status: userStatusEnum("status").notNull().default("active"),
+  isSystemRole: boolean("is_system_role").notNull().default(false), // protected: can't edit/delete
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// The full permission catalog — one row per "module.action" (e.g. "users.create"). New modules
+// are onboarded by inserting rows here; no schema change needed.
+export const permissions = pgTable("permissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(), // display label, e.g. "Create Users"
+  slug: text("slug").notNull().unique(), // "users.create"
+  module: text("module").notNull(), // "users"
+  description: text("description"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const rolePermissions = pgTable("role_permissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  roleId: uuid("role_id").notNull().references(() => roles.id, { onDelete: "cascade" }),
+  permissionId: uuid("permission_id").notNull().references(() => permissions.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
 
 // ───────────────────────── Users (§13, §15) ─────────────────────────
 export const users = pgTable("users", {
@@ -29,7 +71,9 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash"), // bcrypt; null for OAuth-only
-  role: roleEnum("role").notNull().default("student"),
+  role: roleEnum("role").notNull().default("student"), // coarse: student vs admin-panel account
+  roleId: uuid("role_id").references(() => roles.id, { onDelete: "set null" }), // fine-grained permissions (admin-panel accounts only)
+  status: userStatusEnum("status").notNull().default("active"),
   phone: text("phone"),
   dob: date("dob"),
   gender: text("gender"),
@@ -39,6 +83,22 @@ export const users = pgTable("users", {
   location: text("location"), // home studio
   flag: text("flag"),
   mediaConsent: boolean("media_consent").notNull().default(false),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// ───────────────────────── Audit Logs (admin RBAC actions) ─────────────────────────
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }), // who performed it
+  actorName: text("actor_name"), // denormalized so the log still reads if the actor is later deleted
+  action: text("action").notNull(), // "user.created", "role.permissions_changed", ...
+  module: text("module").notNull(), // "users" | "roles"
+  targetType: text("target_type"), // "user" | "role"
+  targetId: text("target_id"),
+  oldValues: text("old_values"), // JSON string snapshot (never includes password fields)
+  newValues: text("new_values"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -210,6 +270,27 @@ export const categories = pgTable("categories", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// ───────────────────────── Levels (admin-managed) ─────────────────────────
+export const levels = pgTable("levels", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ───────────────────────── Announcements (admin broadcasts to students) ─────────────────────────
+export const announcementToneEnum = pgEnum("announcement_tone", ["info", "warning", "urgent"]);
+
+export const announcements = pgTable("announcements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  tone: announcementToneEnum("tone").notNull().default("info"),
+  active: boolean("active").notNull().default(true),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
 // ───────────────────────── Classes (admin-managed offerings with a fixed time) ─────────────────────────
 export const classes = pgTable("classes", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -239,7 +320,9 @@ export const discounts = pgTable("discounts", {
   percent: integer("percent"), // 0–100, used when type='percent'
   flatAmount: integer("flat_amount"), // SEK, used when type='flat'
   scope: discountScopeEnum("scope").notNull().default("all"),
-  target: text("target"), // category name or class id (null for scope=all)
+  target: text("target"), // category name, class id, or event id — null for scope=all/studio
+  validFrom: date("valid_from"), // null = no start restriction
+  validUntil: date("valid_until"), // null = no end restriction
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
@@ -280,6 +363,7 @@ export const registrations = pgTable("registrations", {
   statusTone: text("status_tone").notNull().default("gray"),
   amount: integer("amount").notNull().default(0), // SEK actually charged (after discount)
   discountCode: text("discount_code"), // Discount Master code applied at checkout, if any
+  eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }), // set for workshop/event bookings only
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/api";
+import { requirePermission } from "@/lib/auth/permissions";
 import { getFullReport } from "@/lib/stats";
 
 export const runtime = "nodejs";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // Unified report across all admin features (registrations, classes, events,
 // studio, payments, discounts) — one endpoint, filterable by month/location/type.
 export async function GET(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("reports.view");
   if (!auth.ok) return auth.response;
 
   const month = req.nextUrl.searchParams.get("month") || undefined;

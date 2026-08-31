@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/api";
+import { requirePermission } from "@/lib/auth/permissions";
 import { listLocations, createLocation, DbNotConfiguredError } from "@/lib/services";
 
 export const runtime = "nodejs";
@@ -18,7 +18,7 @@ export async function GET() {
 
 // Admin only: add a location.
 export async function POST(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("locations.create");
   if (!auth.ok) return auth.response;
   try {
     const b = await req.json();

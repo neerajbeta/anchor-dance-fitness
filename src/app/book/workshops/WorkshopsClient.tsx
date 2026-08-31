@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { TopNav } from "@/components/TopNav";
 import { type EventItem } from "@/lib/data";
+import { saveDraft } from "@/lib/bookingDraft";
 
 const MODE_FILTERS = ["All", "💻 Online", "🏃 In-Person"];
 const TYPE_FILTERS = ["All", "🎭 Workshop", "⭐ Event"];
@@ -145,9 +146,23 @@ function Sep() {
 }
 
 function EventCard({ e }: { e: EventItem }) {
+  const router = useRouter();
   const full = e.seatsLeft === 0 && !e.past;
   const accent = e.kind === "workshop" ? "text-warn" : "text-grape";
   const badgeTone = e.kind === "workshop" ? "bg-warn" : "bg-grape";
+
+  function bookNow() {
+    saveDraft({
+      type: e.kind,
+      location: e.location,
+      mode: e.mode,
+      period: e.date,
+      detail: e.title,
+      eventId: e.id,
+      baseAmount: e.price,
+    });
+    router.push("/plans");
+  }
 
   return (
     <div
@@ -213,9 +228,9 @@ function EventCard({ e }: { e: EventItem }) {
             </div>
             <div className="text-right">
               <div className="text-base font-extrabold text-brand-600">SEK {e.price}</div>
-              <Link href="/plans" className="btn btn-primary btn-sm mt-2">
+              <button onClick={bookNow} className="btn btn-primary btn-sm mt-2">
                 Book Now →
-              </Link>
+              </button>
             </div>
           </div>
         )}

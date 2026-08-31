@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/api";
+import { requirePermission } from "@/lib/auth/permissions";
 import { getCategoryReport, DbNotConfiguredError } from "@/lib/services";
 
 export const runtime = "nodejs";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // Best-selling categories, filter by month (YYYY-MM) and location.
 export async function GET(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requirePermission("reports.view");
   if (!auth.ok) return auth.response;
   try {
     const month = req.nextUrl.searchParams.get("month") || undefined;
