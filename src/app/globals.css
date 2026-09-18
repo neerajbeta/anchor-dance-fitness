@@ -2,13 +2,123 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* `.force-light` re-applies the light tokens inside a dark page — used by pieces
+   of the admin panel, which is always light. */
+:root,
+.force-light {
   --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
   --font-display: "Poppins", "Inter", sans-serif;
   --brand: #ef5b2b;
   --brand-red: #e63e2b;
   --brand-orange: #f7942e;
   --ink: #211a16;
+
+  /* ── Dance & Fitness themed design tokens (portal / booking / coach / auth) ── */
+  --accent: #eb3936;
+  --accent-dark: #c92c2a;
+  --accent-warm: #f89b47;
+  --accent-mid: #f16935;
+  --chrome: #1b1817;
+  --chrome-deep: #120e0c;
+  --canvas: #f3ebe3;
+  --surface: #fffaf6;
+  --surface-muted: #ebe1d6;
+  --surface-glass: rgba(255, 250, 246, 0.9);
+  --surface-elevated: #fffaf6;
+  --border: #dfd2c5;
+  --border-strong: rgba(175, 150, 130, 0.28);
+  --t-success: #1f8a5b;
+  --t-warning: #c47a0a;
+  --t-danger: #d11f1c;
+  --t-info: #1f5fbf;
+  --text-primary: #1b1817;
+  --text-secondary: #6e6258;
+  --shadow-sm: 0 1px 2px rgba(27, 24, 23, 0.05), 0 1px 1px rgba(27, 24, 23, 0.04);
+  --shadow-md: 0 8px 24px rgba(27, 24, 23, 0.1), 0 2px 6px rgba(27, 24, 23, 0.05);
+  --shadow-lg: 0 28px 64px rgba(27, 24, 23, 0.16), 0 8px 20px rgba(27, 24, 23, 0.08);
+  --shadow-glow-accent: 0 12px 40px rgba(235, 57, 54, 0.28);
+  --ease-premium: cubic-bezier(0.22, 1, 0.36, 1);
+  --body-glow-a: rgba(235, 57, 54, 0.07);
+  --body-glow-b: rgba(248, 155, 71, 0.1);
+  --body-wash-top: #f7efe7;
+  --body-wash-mid: #f0e4d8;
+  --body-wash-bottom: #e8d9ca;
+  --table-header: rgba(247, 239, 231, 0.96);
+  --nav-bg: rgba(27, 24, 23, 0.94);
+  --mobile-nav-bg: rgba(255, 250, 246, 0.96);
+  --auth-panel: #f5ebe2;
+  --modal-footer: #f3ebe3;
+}
+
+.dark {
+  --accent: #eb3936;
+  --accent-dark: #c92c2a;
+  --accent-warm: #f89b47;
+  --accent-mid: #f16935;
+  --canvas: #1b1512;
+  --chrome: #241c18;
+  --chrome-deep: #16110e;
+  /* Cards sit a clear step above the canvas so they read as lifted panels. */
+  --surface: #3a2e27;
+  --surface-muted: #4a3b33;
+  --surface-glass: rgba(58, 46, 39, 0.94);
+  --surface-elevated: #44362e;
+  --border: #5c4a3f;
+  --border-strong: rgba(226, 194, 164, 0.22);
+  --text-primary: #fbf5ef;
+  --text-secondary: #cdbdae;
+  --shadow-sm: 0 1px 2px rgba(12, 8, 6, 0.4), 0 1px 1px rgba(12, 8, 6, 0.25);
+  --shadow-md: 0 10px 28px rgba(12, 8, 6, 0.45), 0 2px 8px rgba(12, 8, 6, 0.3);
+  --shadow-lg: 0 28px 64px rgba(12, 8, 6, 0.55), 0 8px 20px rgba(12, 8, 6, 0.35);
+  --shadow-glow-accent: 0 12px 40px rgba(235, 57, 54, 0.35);
+  --body-glow-a: rgba(235, 57, 54, 0.16);
+  --body-glow-b: rgba(248, 155, 71, 0.12);
+  --body-wash-top: #241c18;
+  --body-wash-mid: #1b1512;
+  --body-wash-bottom: #2a1f1a;
+  --table-header: rgba(58, 46, 39, 0.97);
+  --nav-bg: rgba(27, 21, 18, 0.94);
+  --mobile-nav-bg: rgba(58, 46, 39, 0.96);
+  --auth-panel: #211a16;
+  --modal-footer: #3a2e27;
+  color-scheme: dark;
+}
+
+/* Dark mode with LIGHT CARDS: every card re-declares the light tokens for
+   itself and everything inside it, so cards are bright cream panels on the dark
+   page (text, borders, chips and inputs inside flip with them). `dark:` utilities
+   are switched off inside them by the darkMode selector in tailwind.config.ts.
+   To go back to dark cards, delete this block and restore darkMode: "class". */
+.dark :is(.surface-card, .surface-raised, .bg-surface, .bg-surface\/90) {
+  --surface: #fffaf6;
+  --surface-muted: #efe5da;
+  --surface-glass: rgba(255, 250, 246, 0.97);
+  --surface-elevated: #fffaf6;
+  --border: #e3d6c9;
+  --border-strong: rgba(175, 150, 130, 0.35);
+  --text-primary: #1b1817;
+  --text-secondary: #6e6258;
+  --table-header: rgba(247, 239, 231, 0.96);
+  --modal-footer: #f3ebe3;
+  color: var(--text-primary);
+  color-scheme: light;
+}
+/* Portal hero in dark mode: stays dark, but a clear step above the page — a
+   warmer, lighter panel with a red glow and a hairline edge — so it doesn't
+   melt into the background. */
+.dark .portal-hero {
+  background:
+    radial-gradient(ellipse 65% 75% at 8% 0%, rgba(235, 57, 54, 0.38), transparent 60%),
+    radial-gradient(ellipse 55% 60% at 100% 100%, rgba(248, 155, 71, 0.22), transparent 60%),
+    linear-gradient(155deg, #3d2c24 0%, #2c211c 55%, #33251f 100%);
+  border: 1px solid rgba(255, 214, 190, 0.12);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 24px 60px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(235, 57, 54, 0.08);
+}
+.dark :is(.surface-card, .surface-raised) {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 * {
@@ -152,14 +262,14 @@ body {
   }
   .stat::before {
     content: "";
-    @apply absolute left-0 top-0 h-full w-1;
+    @apply absolute left-0 top-0 h-full w-[0.35rem];
     background-image: linear-gradient(180deg, #f7942e, #e63e2b);
   }
   .stat-label {
     @apply mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted;
   }
   .stat-value {
-    @apply font-display text-3xl font-extrabold leading-none text-ink;
+    @apply font-display text-[1rem] font-extrabold leading-none text-ink;
   }
   .stat-sub {
     @apply mt-1.5 text-xs text-muted;
@@ -215,4 +325,172 @@ body {
   .anim-fade {
     animation: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Dance & Fitness themed surfaces (portal / booking / coach / auth)
+   Scoped via explicit classes so the admin panel is untouched.
+   ───────────────────────────────────────────────────────────── */
+
+.app-canvas {
+  background-color: var(--canvas);
+  color: var(--text-primary);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 0% -10%, var(--body-glow-a), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, var(--body-glow-b), transparent 45%),
+    linear-gradient(180deg, var(--body-wash-top) 0%, var(--body-wash-mid) 40%, var(--body-wash-bottom) 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+.font-oswald {
+  font-family: var(--font-oswald), "Oswald", sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.brand-gradient {
+  background-image: linear-gradient(135deg, var(--accent) 0%, var(--accent-mid) 48%, var(--accent-warm) 100%);
+}
+
+.brand-gradient-text {
+  background-image: linear-gradient(120deg, var(--accent), var(--accent-warm));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.surface-card {
+  background: var(--surface-glass);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px);
+}
+
+.surface-raised {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 22px;
+  box-shadow: var(--shadow-md);
+}
+
+.ink-panel {
+  background:
+    radial-gradient(ellipse 70% 60% at 15% 20%, rgba(235, 57, 54, 0.32), transparent 55%),
+    radial-gradient(ellipse 50% 45% at 90% 80%, rgba(248, 155, 71, 0.2), transparent 50%),
+    linear-gradient(160deg, #2a211c 0%, #1b1512 55%, #241c18 100%);
+}
+
+.noise-overlay::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.premium-nav {
+  background: var(--nav-bg);
+  backdrop-filter: blur(16px) saturate(1.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.premium-input {
+  transition:
+    border-color 0.2s var(--ease-premium),
+    box-shadow 0.2s var(--ease-premium),
+    background 0.2s ease;
+}
+.premium-input:focus {
+  box-shadow: 0 0 0 4px rgba(235, 57, 54, 0.12);
+}
+
+.auth-panel {
+  background: var(--auth-panel);
+}
+
+.mobile-tabbar {
+  background: var(--mobile-nav-bg);
+  border-top: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+/* Themed form controls for the re-skinned areas (mirror admin .field / .field-label
+   but bound to the light/dark design tokens). */
+.t-field {
+  display: block;
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-muted) 60%, transparent);
+  padding: 0.7rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  transition:
+    border-color 0.2s var(--ease-premium),
+    box-shadow 0.2s var(--ease-premium),
+    background 0.2s ease;
+}
+.t-field::placeholder {
+  color: color-mix(in srgb, var(--text-secondary) 60%, transparent);
+}
+.t-field:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 4px rgba(235, 57, 54, 0.12);
+}
+.t-field:disabled {
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+.t-label {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.table-sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--table-header);
+  backdrop-filter: blur(8px);
+}
+
+@keyframes enter-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(20px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes float-soft {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+.animate-enter { animation: enter-up 0.55s var(--ease-premium) both; }
+.animate-overlay { animation: overlay-in 0.22s ease both; }
+.animate-sheet { animation: sheet-in 0.34s var(--ease-premium) both; }
+.animate-float { animation: float-soft 5.5s ease-in-out infinite; }
+.stagger-1 { animation-delay: 0.06s; }
+.stagger-2 { animation-delay: 0.12s; }
+.stagger-3 { animation-delay: 0.18s; }
+
+.app-canvas :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }

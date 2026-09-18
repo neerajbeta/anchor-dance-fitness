@@ -8,7 +8,7 @@ type Mix = { classes: number; workshopsEvents: number; studio: number };
 const SEGMENTS: { key: keyof Mix; label: string; color: string }[] = [
   { key: "classes", label: "Classes", color: "#3B82C4" },
   { key: "workshopsEvents", label: "Workshops & Events", color: "#E0972B" },
-  { key: "studio", label: "Studio", color: "#8B5CF6" },
+  { key: "studio", label: "Studio Bookings", color: "#8B5CF6" },
 ];
 
 const SIZE = 160;

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { COUNTRIES, DIAL_CODES, flagFromCode } from "@/lib/countries";
 
-const CLASS_TYPES = ["Group Class", "Private Class", "Trial Class"];
 
 type Category = { id: string; name: string };
 type Loc = { id: string; label: string; flag: string | null };
@@ -24,11 +23,16 @@ export function BookDemoButton({
   const [locs, setLocs] = useState<Loc[]>([]);
   const [countryCode, setCountryCode] = useState("IN");
   const [consent, setConsent] = useState(false);
+  const [classTypes, setClassTypes] = useState<string[]>([]); // admin Portal Settings
 
   useEffect(() => {
     if (!open) return;
     fetch("/api/categories").then((r) => r.json()).then((j) => setCategories(j.data ?? []));
     fetch("/api/locations").then((r) => r.json()).then((j) => setLocs(j.data ?? []));
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((j) => setClassTypes(j.data?.demoClassTypes ?? []))
+      .catch(() => {});
   }, [open]);
 
   function reset() {
@@ -163,7 +167,7 @@ export function BookDemoButton({
                       <label className="field-label">Type of Class</label>
                       <select name="typeOfClass" className="field" defaultValue="">
                         <option value="">Select type of class</option>
-                        {CLASS_TYPES.map((t) => (
+                        {classTypes.map((t) => (
                           <option key={t}>{t}</option>
                         ))}
                       </select>

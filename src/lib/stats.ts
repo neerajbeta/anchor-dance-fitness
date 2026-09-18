@@ -38,6 +38,15 @@ export type DashboardStats = {
   bookingMix: { classes: number; workshopsEvents: number; studio: number };
   studentsTrend: { month: string; total: number }[];
   classesMix: { online: number; offline: number; total: number };
+  upcomingThisWeek: {
+    id: string;
+    date: string;
+    title: string;
+    kind: string;
+    location: string;
+    booked: number;
+    capacity: number;
+  }[];
 };
 
 const EMPTY: DashboardStats = {
@@ -65,6 +74,7 @@ const EMPTY: DashboardStats = {
   bookingMix: { classes: 0, workshopsEvents: 0, studio: 0 },
   studentsTrend: [],
   classesMix: { online: 0, offline: 0, total: 0 },
+  upcomingThisWeek: [],
 };
 
 const MONTH_LABELS = [
@@ -122,6 +132,28 @@ export async function getDashboardStats(location?: string): Promise<DashboardSta
     const lowSeatEventsCount = allEvents.filter(
       (e) => !e.isPast && e.seatsLeft > 0 && e.seatsLeft <= 3
     ).length;
+
+    // Upcoming This Week — events/workshops only. Classes don't have a per-session booking
+    // link yet (registrations record a category, not a specific class/date), so a "Booked"
+    // count for them would be a guess; scoped out until that link exists.
+    const weekEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
+    const upcomingThisWeek = allEvents
+      .filter((e) => {
+        if (e.isPast || !e.eventDate) return false;
+        const d = new Date(e.eventDate);
+        return d >= today && d <= weekEnd;
+      })
+      .sort((a, b) => new Date(a.eventDate!).getTime() - new Date(b.eventDate!).getTime())
+      .slice(0, 8)
+      .map((e) => ({
+        id: e.id,
+        date: e.eventDate!,
+        title: e.title,
+        kind: e.kind,
+        location: e.location,
+        booked: Math.max(0, e.seatsTotal - e.seatsLeft),
+        capacity: e.seatsTotal,
+      }));
 
     // Revenue trend — last 6 months, filling gaps so the line has no holes.
     const trendByMonth = new Map<string, number>();
@@ -202,6 +234,7 @@ export async function getDashboardStats(location?: string): Promise<DashboardSta
       bookingMix,
       studentsTrend,
       classesMix,
+      upcomingThisWeek,
     };
   } catch (err) {
     console.error("[stats] dashboard query failed:", err);
@@ -261,6 +294,7 @@ export type StudioBookingView = {
   discountCode?: string | null;
   paid: "paid" | "overdue" | "pending" | "onetime";
   status: string;
+  notes?: string | null; // the customer's own notes from the booking form
 };
 
 // Reads from `registrations` (type='studio') — the same table every booking
@@ -289,6 +323,7 @@ export async function getStudioBookings(): Promise<{
         discountCode: r.discountCode,
         paid: r.paid,
         status: r.status,
+        notes: r.notes,
       })),
     };
   } catch (err) {

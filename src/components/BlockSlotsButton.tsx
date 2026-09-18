@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LocationSelect } from "@/components/LocationSelect";
+import { DatePicker } from "@/components/theme/DatePicker";
 
 // Full 24h, 30-min steps: 00:00 → 23:30
 const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => {
@@ -17,10 +18,14 @@ export function BlockSlotsButton() {
   const [error, setError] = useState<string | null>(null);
   const [startT, setStartT] = useState("");
   const [endT, setEndT] = useState("");
+  const [date, setDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   function reset() {
     setStartT("");
     setEndT("");
+    setDate("");
+    setEndDate("");
     setError(null);
   }
 
@@ -100,17 +105,36 @@ export function BlockSlotsButton() {
 
             <div className="mb-3">
               <label className="field-label">Location *</label>
-              <LocationSelect name="location" required />
+              <LocationSelect studio name="location" required />
             </div>
 
             <div className="mb-3 grid grid-cols-2 gap-3">
               <div>
                 <label className="field-label">Start Date *</label>
-                <input name="date" className="field" type="date" required />
+                <DatePicker
+                  variant="admin"
+                  name="date"
+                  required
+                  value={date}
+                  onChange={(v) => {
+                    setDate(v);
+                    if (endDate && v && endDate < v) setEndDate("");
+                  }}
+                  placeholder="Select start date"
+                />
               </div>
               <div>
                 <label className="field-label">End Date *</label>
-                <input name="endDate" className="field" type="date" required />
+                <DatePicker
+                  variant="admin"
+                  name="endDate"
+                  required
+                  value={endDate}
+                  onChange={setEndDate}
+                  min={date || undefined}
+                  initialMonth={date || undefined}
+                  placeholder="Select end date"
+                />
               </div>
             </div>
 

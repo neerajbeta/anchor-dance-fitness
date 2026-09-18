@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FormDatePicker } from "@/components/theme/DatePicker";
 
 type Scope = "all" | "category" | "class" | "event" | "workshop" | "studio";
 
@@ -223,11 +224,11 @@ export function DiscountsManager() {
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className="field-label">Valid From (optional)</label>
-            <input name="validFrom" className="field" type="date" defaultValue={editing?.validFrom ?? ""} />
+            <FormDatePicker variant="admin" name="validFrom" defaultValue={editing?.validFrom} placeholder="Any time" />
           </div>
           <div>
             <label className="field-label">Valid Until (optional)</label>
-            <input name="validUntil" className="field" type="date" defaultValue={editing?.validUntil ?? ""} />
+            <FormDatePicker variant="admin" name="validUntil" defaultValue={editing?.validUntil} placeholder="No end date" />
           </div>
         </div>
 

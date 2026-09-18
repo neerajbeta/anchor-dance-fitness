@@ -2,10 +2,34 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { LogoWordmark } from "@/components/Logo";
-import { Stepper } from "@/components/Stepper";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  ArrowRight,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  CreditCard,
+  Footprints,
+  Layers,
+  MapPin,
+  Monitor,
+  Music2,
+  Repeat,
+  ShieldCheck,
+  Sparkles,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react";
+import { SessionStudentNav } from "@/components/theme/shells";
+import { Stepper } from "@/components/theme/Stepper";
+import { Select } from "@/components/theme/Input";
+import { DatePicker } from "@/components/theme/DatePicker";
+import { Button } from "@/components/theme/Button";
+import { ConsentCheckbox } from "@/components/theme/form-field";
 import { saveDraft } from "@/lib/bookingDraft";
+import { monthsBetween } from "@/lib/plans";
+import { countSessions, isSeries, lastClassDate, parseDays, scheduleDates } from "@/lib/classSchedule";
+import { cn } from "@/lib/cn";
 
 type Location = { id: string; label: string; flag: string | null };
 type ClassRow = {
@@ -16,6 +40,8 @@ type ClassRow = {
   location: string;
   mode: "online" | "offline";
   days: string | null;
+  startDate: string | null;
+  endDate: string | null;
   startTime: string;
   endTime: string;
   coach: string | null;
@@ -23,6 +49,8 @@ type ClassRow = {
 };
 
 const fmt = (t?: string) => (t ? t.slice(0, 5) : "");
+const pad = (n: number) => String(n).padStart(2, "0");
+const toIso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 export default function BookClassPage() {
   const router = useRouter();
@@ -32,10 +60,15 @@ export default function BookClassPage() {
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [location, setLocation] = useState("");
   const [classId, setClassId] = useState("");
-  const [startDate, setStartDate] = useState("2025-08-04");
-  const [endDate, setEndDate] = useState("2025-10-31");
-
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  // Classes this student already holds — shown as "Already booked", not selectable.
+  const [bookedIds, setBookedIds] = useState<Set<string>>(new Set());
   useEffect(() => {
+    fetch("/api/my-bookings")
+      .then((r) => r.json())
+      .then((j) => setBookedIds(new Set(j.data?.classIds ?? [])))
+      .catch(() => {});
     fetch("/api/locations")
       .then((r) => r.json())
       .then((j) => setLocations(j.data ?? []));
@@ -44,210 +77,471 @@ export default function BookClassPage() {
       .then((j) => setClasses(j.data ?? []));
   }, []);
 
-  // Classes matching the chosen mode (and location, when picked for in-person).
+  // Local calendar date (not UTC), so "today" matches the customer's own calendar.
+  const today = toIso(new Date());
+
+  // How many classes are hidden only because their course has already ended.
+  const matching = useMemo(
+    // Both modes filter by studio location; "All locations" ("") shows every class in that mode.
+    () => classes.filter((c) => c.mode === mode && (!location || c.location === location)),
+    [classes, mode, location],
+  );
+  // A class whose course has ended has no dates left to book, so it isn't offered.
   const available = useMemo(
     () =>
-      classes.filter(
-        (c) => c.mode === mode && (mode === "online" || !location || c.location === location)
-      ),
-    [classes, mode, location]
+      matching.filter((c) => {
+        const last = lastClassDate(c);
+        return !last || last >= today;
+      }),
+    [matching, today],
   );
+  const endedCount = matching.length - available.length;
 
-  const selected = available.find((c) => c.id === classId) || null;
+  const selected = available.find((c) => c.id === classId && !bookedIds.has(c.id)) || null;
 
-  // Reset selection when the filters change it out of range.
   useEffect(() => {
     if (classId && !available.some((c) => c.id === classId)) setClassId("");
   }, [available, classId]);
 
+  // For a series the customer picks their own dates. They start empty and may
+  // only fall inside the class's course dates (when admin set them), never in the past.
+  const oneOff = selected ? !isSeries(selected) : false;
+  const minDate = selected?.startDate && selected.startDate > today ? selected.startDate : today;
+  const maxDate = (selected && lastClassDate(selected)) ?? undefined;
+
+  // Switching class: a one-off has its single fixed date; for a series, drop
+  // dates that no longer fit the new class's range.
+  const selectedId = selected?.id;
+  useEffect(() => {
+    if (selected && oneOff && selected.startDate) {
+      setStartDate(selected.startDate);
+      setEndDate(lastClassDate(selected) ?? selected.startDate);
+      return;
+    }
+    setStartDate((v) => (v && v >= minDate && (!maxDate || v <= maxDate) ? v : ""));
+    setEndDate((v) => (v && v >= minDate && (!maxDate || v <= maxDate) ? v : ""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  const dateError = !startDate || !endDate
+    ? null
+    : startDate < minDate
+    ? "Start date can't be in the past or before the class starts."
+    : maxDate && endDate > maxDate
+    ? `This class runs until ${maxDate} — pick an end date on or before it.`
+    : endDate < startDate
+    ? "End date must be on or after the start date."
+    : null;
+  const datesValid = Boolean(startDate && endDate) && !dateError;
+
+  const canContinue = Boolean(consent && selected && datesValid);
+  // What's still missing, so the disabled button explains itself.
+  const missing = !selected
+    ? "Pick a class to continue"
+    : !startDate || !endDate
+    ? "Choose your dates"
+    : dateError
+    ? "Fix the dates"
+    : !consent
+    ? "Accept the media consent"
+    : null;
+
+  function goToPlans() {
+    if (!selected || !canContinue) return;
+    // The booking is recorded against the class's own studio.
+    const classLocation = location || selected.location;
+    const loc = locations.find((l) => l.label === classLocation);
+    saveDraft({
+      type: "class",
+      location: classLocation,
+      flag: loc?.flag ?? "",
+      mode,
+      period: `${startDate} – ${endDate}`,
+      startDate,
+      endDate,
+      detail: `${selected.name} · ${fmt(selected.startTime)}–${fmt(selected.endTime)}`,
+      category: selected.category,
+      level: selected.level,
+      classId: selected.id,
+      baseAmount: selected.price || 0,
+    });
+    router.push("/plans");
+  }
+
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="flex h-16 items-center justify-between bg-ink px-7">
-        <LogoWordmark size={30} />
-        <div className="text-[13px] text-white/50">Book a Dance Class</div>
-      </header>
+    <div className="app-canvas flex min-h-screen flex-col">
+      <SessionStudentNav />
 
-      <main className="mx-auto w-full max-w-2xl px-6 py-8 anim-fade">
-        <Stepper steps={["Class Details", "Choose Plan", "Pay & Confirm"]} current={0} />
+      <main className="animate-enter mx-auto w-full max-w-3xl px-4 py-8 pb-40 md:py-10 md:pb-28">
+        <Stepper
+          steps={["Class Details", "Choose Plan", "Pay & Confirm"]}
+          icons={[CalendarDays, Layers, CreditCard]}
+          current={0}
+          subtitle="Choose online or in-person, pick your class and your dates — takes under a minute."
+        />
 
-        <div className="card">
-          <div className="card-title">Class Preferences</div>
+        {/* 1 · Mode + location */}
+        <Section icon={Sparkles} title="Class Mode & Location">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Mode of class">
+            <ModeTile
+              active={mode === "online"}
+              onClick={() => setMode("online")}
+              icon={Monitor}
+              title="Online"
+              text="Live classes from anywhere, via video call."
+            />
+            <ModeTile
+              active={mode === "offline"}
+              onClick={() => setMode("offline")}
+              icon={Footprints}
+              title="In-Person"
+              text="Train with a coach at one of our studios."
+            />
+          </div>
 
-          {/* Mode toggle */}
-          <div className="mb-4">
-            <label className="field-label">Mode of Class *</label>
-            <div className="flex w-fit overflow-hidden rounded-lg border-2 border-line">
-              {(["online", "offline"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`px-5 py-2 text-[13px] font-semibold transition-colors ${
-                    mode === m ? "bg-ink text-white" : "bg-white text-slate"
-                  }`}
-                >
-                  {m === "online" ? "💻 Online" : "🏃 In-Person"}
-                </button>
+          <label className="mt-4 block">
+            <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-copy-dim">
+              <MapPin className="h-3.5 w-3.5" /> Studio Location
+            </span>
+            <Select value={location} onChange={(e) => setLocation(e.target.value)}>
+              <option value="">All locations</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.label}>
+                  {l.flag} {l.label}
+                </option>
+              ))}
+            </Select>
+            <span className="mt-1.5 block text-[11px] text-copy-dim">
+              {mode === "online"
+                ? "Online classes can be joined from anywhere — pick a studio to narrow the list."
+                : "In-Person classes take place at the studio shown on each class."}
+            </span>
+          </label>
+        </Section>
+
+        {/* 2 · Class */}
+        <Section
+          icon={Music2}
+          title="Pick your class"
+          aside={available.length > 0 ? `${available.length} available` : undefined}
+        >
+          {available.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Classes">
+              {available.map((c) => (
+                <ClassCard
+                  key={c.id}
+                  c={c}
+                  active={c.id === classId && !bookedIds.has(c.id)}
+                  booked={bookedIds.has(c.id)}
+                  flag={locations.find((l) => l.label === c.location)?.flag}
+                  onSelect={() => setClassId(c.id)}
+                />
               ))}
             </div>
-          </div>
-
-          {/* Location */}
-          <div className="mb-4">
-            <label className="field-label">Location / City *</label>
-            {mode === "online" ? (
-              <>
-                <input
-                  className="field mb-1.5"
-                  placeholder="Type your city (e.g. Bangalore, Dubai…)"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                />
-                <div className="text-[11px] text-muted">
-                  📍 Online classes are open to all cities globally.
-                </div>
-              </>
-            ) : (
-              <>
-                <select
-                  className="field"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                >
-                  <option value="">Select studio location</option>
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.label}>
-                      {l.flag} {l.label}
-                    </option>
-                  ))}
-                </select>
-                <div className="mt-2 text-[11px] text-muted">
-                  🏛️ In-Person classes are available at our studio locations above.
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Class selector — auto-fills category, level, and time */}
-          <div className="mb-4">
-            <label className="field-label">Select a Class *</label>
-            {available.length > 0 ? (
-              <select className="field" value={classId} onChange={(e) => setClassId(e.target.value)}>
-                <option value="">Choose an available class…</option>
-                {available.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} — {c.category} · {c.level}
-                    {c.days ? ` · ${c.days}` : ""} · {fmt(c.startTime)}–{fmt(c.endTime)}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="rounded-lg border-[1.5px] border-dashed border-line bg-cream/40 px-3 py-2.5 text-[12px] text-muted">
-                No classes available for this selection yet. Choose a different mode/location, or
-                contact the studio.
-              </div>
-            )}
-          </div>
-
-          {/* Auto-filled details (read-only) */}
-          {selected && (
-            <div className="mb-4 grid grid-cols-2 gap-3 rounded-xl border-[1.5px] border-brand-200 bg-brand-50 p-4 sm:grid-cols-4">
-              <Auto label="Category" value={selected.category} />
-              <Auto label="Level" value={selected.level} />
-              <Auto
-                label="Class Time"
-                value={`${fmt(selected.startTime)} – ${fmt(selected.endTime)}`}
-                highlight
-              />
-              <Auto label="Price" value={selected.price ? `SEK ${selected.price}` : "—"} />
-              <Auto label="Coach" value={selected.coach || "TBA"} />
+          ) : (
+            <div className="flex flex-col items-center rounded-2xl border-[1.5px] border-dashed border-hairline bg-surface-muted/40 px-4 py-8 text-center">
+              <Music2 className="mb-2 h-7 w-7 text-copy-dim" />
+              <div className="text-sm font-semibold text-copy">No classes to show</div>
+              <p className="mt-1 max-w-sm text-[12px] text-copy-dim">
+                {endedCount > 0
+                  ? `${endedCount} class${endedCount === 1 ? " has" : "es have"} already ended here. Try another mode or location, or contact the studio.`
+                  : "Nothing scheduled for this selection yet. Try another mode or location, or contact the studio."}
+              </p>
             </div>
           )}
+        </Section>
 
-          {/* Recurring period */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label className="field-label">Start Date *</label>
-              <input className="field" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        {/* 3 · Dates */}
+        <Section icon={CalendarDays} title={oneOff ? "Class date" : "Choose your dates"} muted={!selected}>
+          {!selected ? (
+            <p className="text-[13px] text-copy-dim">
+              Pick a class first — its schedule decides which dates you can book.
+            </p>
+          ) : oneOff ? (
+            // A one-off runs on a single fixed date — nothing to choose.
+            <div className="flex items-center gap-3 rounded-xl bg-accent/[0.06] px-4 py-3">
+              <CalendarDays className="h-5 w-5 shrink-0 text-accent" />
+              <div>
+                <div className="text-sm font-bold text-copy">{scheduleDates(selected) ?? "Date to be confirmed"}</div>
+                <div className="text-[12px] text-copy-dim">
+                  One-off session · {fmt(selected.startTime)}–{fmt(selected.endTime)}
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="field-label">End Date (recurring until) *</label>
-              <input className="field" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+                <label className="mb-3 block">
+                  <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.08em] text-copy-dim">
+                    Start Date <span className="text-danger">*</span>
+                  </span>
+                  <DatePicker
+                    value={startDate}
+                    min={minDate}
+                    max={maxDate}
+                    onChange={setStartDate}
+                    placeholder="Select start date"
+                    markWeekdays={parseDays(selected.days)}
+                  />
+                </label>
+                <label className="mb-3 block">
+                  <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.08em] text-copy-dim">
+                    End Date (recurring until) <span className="text-danger">*</span>
+                  </span>
+                  <DatePicker
+                    value={endDate}
+                    min={startDate || minDate}
+                    max={maxDate}
+                    onChange={setEndDate}
+                    placeholder="Select end date"
+                    markWeekdays={parseDays(selected.days)}
+                    initialMonth={startDate || undefined}
+                  />
+                </label>
+              </div>
 
-          <div className="mt-4 rounded-lg border-[1.5px] border-ok/40 bg-ok/10 px-4 py-2.5 text-xs text-[#1f6e4b]">
-            ✅ Your class runs at the fixed time shown above. The admin team confirms your enrolment
-            within 24 hours.
-          </div>
+              {dateError ? (
+                <p className="mb-2 text-[12px] font-semibold text-danger">{dateError}</p>
+              ) : datesValid ? (
+                <p className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-3 py-1 text-[12px] font-semibold text-ok">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {monthsBetween(startDate, endDate)}-month booking · {startDate} → {endDate}
+                </p>
+              ) : null}
+              {selected.startDate || selected.endDate ? (
+                <p className="text-[11px] text-copy-dim">
+                  This class runs{selected.startDate ? ` from ${selected.startDate}` : ""}
+                  {selected.endDate ? ` until ${selected.endDate}` : ""} — choose dates within that range.
+                </p>
+              ) : null}
+            </>
+          )}
+        </Section>
 
-          {/* Consent */}
-          <button
-            onClick={() => setConsent((c) => !c)}
-            className="mt-5 flex w-full items-start gap-3 rounded-lg border-2 border-warn/50 bg-warn/10 p-4 text-left"
-          >
-            <span
-              className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-2 text-xs font-bold text-white transition-colors ${
-                consent ? "border-warn bg-warn" : "border-warn"
-              }`}
-            >
-              {consent && "✓"}
-            </span>
-            <span className="text-[13px] leading-relaxed text-[#7a5512]">
-              <strong>Media Consent Disclaimer</strong>
-              <br />
-              By registering, you agree to share pictures and videos of the session(s) you attend.{" "}
-              <span className="font-bold text-danger">* Required to proceed.</span>
-            </span>
-          </button>
-
-          <div className="mt-5 flex justify-between">
-            <Link href="/book" className="btn btn-ghost">
-              ← Back
-            </Link>
-            <button
-              className={`btn btn-primary ${consent && selected ? "" : "is-disabled"}`}
-              onClick={() => {
-                if (!selected || !consent) return;
-                const loc = locations.find((l) => l.label === location);
-                saveDraft({
-                  type: "class",
-                  location: mode === "online" ? location || selected.location : location,
-                  flag: loc?.flag ?? "",
-                  mode,
-                  period: `${startDate} – ${endDate}`,
-                  detail: `${selected.name} · ${fmt(selected.startTime)}–${fmt(selected.endTime)}`,
-                  category: selected.category,
-                  level: selected.level,
-                  classId: selected.id,
-                  baseAmount: selected.price || 0,
-                });
-                router.push("/plans");
-              }}
-            >
-              Choose Plan →
-            </button>
+        {/* 4 · Consent */}
+        <Section icon={ShieldCheck} title="Confirm & Consent">
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl bg-ok/10 px-4 py-3 text-xs text-[#1f6e4b] dark:text-emerald-300">
+            <CheckCircle2 className="mt-px h-4 w-4 shrink-0" />
+            Your class runs at the fixed time shown on the class. The admin team confirms your enrolment within 24
+            hours.
           </div>
-        </div>
+          <ConsentCheckbox checked={consent} onChange={setConsent} title="Media Consent Disclaimer">
+            By registering, you agree to share pictures and videos of the session(s) you attend.{" "}
+            <span className="font-bold text-danger">* Required to proceed.</span>
+          </ConsentCheckbox>
+        </Section>
       </main>
+
+      {/* Sticky summary + continue (sits above the phone tab bar) */}
+      <div className="fixed inset-x-0 bottom-14 z-30 border-t border-hairline bg-surface/90 shadow-[0_-8px_30px_rgba(20,17,16,0.06)] backdrop-blur-lg md:bottom-0">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
+            {selected ? (
+              <>
+                <div className="truncate text-sm font-bold text-copy">{selected.name}</div>
+                <div className="truncate text-[12px] text-copy-dim">
+                  {fmt(selected.startTime)}–{fmt(selected.endTime)} ·{" "}
+                  <span className="font-semibold text-accent">SEK {(selected.price || 0).toLocaleString()}/mo</span>
+                  {missing ? ` · ${missing}` : ""}
+                </div>
+              </>
+            ) : (
+              <>
+                <Link href="/book" className="text-sm font-semibold text-copy-dim transition hover:text-accent">
+                  ← Back
+                </Link>
+                <div className="text-[12px] text-copy-dim">{missing}</div>
+              </>
+            )}
+          </div>
+          <Button disabled={!canContinue} onClick={goToPlans} className="shrink-0">
+            Choose Plan <ArrowRight className="ml-1 h-4 w-4" />
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
 
-function Auto({
-  label,
-  value,
-  highlight,
+function Section({
+  icon: Icon,
+  title,
+  aside,
+  muted,
+  children,
 }: {
-  label: string;
-  value: string;
-  highlight?: boolean;
+  icon: LucideIcon;
+  title: string;
+  aside?: string;
+  muted?: boolean;
+  children: ReactNode;
 }) {
   return (
-    <div>
-      <div className="text-[10px] font-bold uppercase tracking-wide text-muted">{label}</div>
-      <div className={`text-[13px] font-bold ${highlight ? "text-brand-600" : "text-ink"}`}>
-        {value}
+    <section className={cn("surface-card mb-4 p-5 transition-opacity md:p-6", muted && "opacity-70")}>
+      <header className="mb-4 flex items-center gap-3">
+        <span className="brand-gradient flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white shadow-[0_6px_16px_rgba(235,57,54,0.25)]">
+          <Icon className="h-[18px] w-[18px]" />
+        </span>
+        <h2 className="min-w-0 flex-1 font-display text-base font-bold leading-tight text-copy">{title}</h2>
+        {aside ? (
+          <span className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-semibold text-accent">{aside}</span>
+        ) : null}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function ModeTile({
+  active,
+  onClick,
+  icon: Icon,
+  title,
+  text,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: LucideIcon;
+  title: string;
+  text: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onClick}
+      className={cn(
+        "group relative flex items-center gap-3.5 rounded-2xl border-2 p-4 text-left transition-all duration-200",
+        active
+          ? "border-accent bg-accent/[0.06] shadow-[0_10px_26px_rgba(235,57,54,0.16)]"
+          : "border-hairline bg-surface hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--shadow-md)]",
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition",
+          active ? "brand-gradient text-white" : "bg-surface-muted text-copy-dim group-hover:text-accent",
+        )}
+      >
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 pr-5">
+        <span className="block text-[15px] font-bold text-copy">{title}</span>
+        <span className="block text-[12px] leading-snug text-copy-dim">{text}</span>
+      </span>
+      {active ? <CheckCircle2 className="absolute right-3 top-3 h-5 w-5 text-accent" /> : null}
+    </button>
+  );
+}
+
+/** "Series · 12 sessions" for a recurring class, "One-off" for a single session. */
+function ScheduleBadge({ c }: { c: ClassRow }) {
+  if (!isSeries(c)) {
+    return (
+      <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-grape/10 px-2 py-0.5 text-[11px] font-semibold text-grape">
+        <Sparkles className="h-3 w-3" />
+        One-off session
+      </span>
+    );
+  }
+  const sessions = c.startDate && c.endDate ? countSessions(c.startDate, c.endDate, parseDays(c.days)) : 0;
+  return (
+    <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-info/10 px-2 py-0.5 text-[11px] font-semibold text-info">
+      <Repeat className="h-3 w-3" />
+      Series{sessions > 0 ? ` · ${sessions} sessions` : ""}
+    </span>
+  );
+}
+
+function ClassCard({
+  c,
+  active,
+  booked = false,
+  flag,
+  onSelect,
+}: {
+  c: ClassRow;
+  active: boolean;
+  booked?: boolean;
+  flag?: string | null;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      aria-disabled={booked}
+      disabled={booked}
+      title={booked ? "You've already booked this class — see My Portal" : undefined}
+      onClick={onSelect}
+      className={cn(
+        "relative flex flex-col rounded-2xl border-2 p-4 text-left transition-all duration-200",
+        booked
+          ? "cursor-not-allowed border-dashed border-ok/50 bg-surface opacity-75"
+          : active
+            ? "border-accent bg-accent/[0.05] shadow-[0_12px_30px_rgba(235,57,54,0.18)]"
+            : "border-hairline bg-surface hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--shadow-md)]",
+      )}
+    >
+      {booked ? (
+        <span className="absolute -top-2.5 left-4 rounded-full bg-ok px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+          ✓ Already booked
+        </span>
+      ) : null}
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[15px] font-bold text-copy">{c.name}</div>
+          <div className="truncate text-[12px] text-copy-dim">
+            {c.category} · {c.level}
+          </div>
+          <ScheduleBadge c={c} />
+        </div>
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-2.5 py-1 text-[12px] font-bold",
+            active ? "brand-gradient text-white" : "bg-accent/10 text-accent",
+          )}
+        >
+          SEK {(c.price || 0).toLocaleString()}
+          <span className="font-medium opacity-80">/mo</span>
+        </span>
       </div>
-    </div>
+
+      <div className="mt-auto flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-copy-dim">
+        <span className="inline-flex items-center gap-1 font-semibold text-copy">
+          <Clock3 className="h-3.5 w-3.5 text-accent" />
+          {fmt(c.startTime)}–{fmt(c.endTime)}
+        </span>
+        {isSeries(c) ? (
+          <span className="inline-flex items-center gap-1">
+            <Repeat className="h-3.5 w-3.5" />
+            {c.days}
+          </span>
+        ) : null}
+        {scheduleDates(c) ? (
+          <span className="inline-flex items-center gap-1">
+            <CalendarDays className="h-3.5 w-3.5" />
+            {scheduleDates(c)}
+          </span>
+        ) : null}
+        <span className="inline-flex items-center gap-1">
+          <MapPin className="h-3.5 w-3.5" />
+          {flag} {c.location}
+        </span>
+        {/* Only shown when admin has assigned a coach to the class. */}
+        {c.coach?.trim() ? (
+          <span className="inline-flex items-center gap-1">
+            <UserRound className="h-3.5 w-3.5" />
+            {c.coach}
+          </span>
+        ) : null}
+      </div>
+
+      {active ? (
+        <CheckCircle2 className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-surface text-accent" />
+      ) : null}
+    </button>
   );
 }

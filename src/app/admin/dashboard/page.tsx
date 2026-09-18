@@ -82,13 +82,62 @@ export default async function AdminDashboard({
       {/* Charts row 3 */}
       <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="card">
-          <div className="card-title">🧑‍🎓 Total Students Trend</div>
+          <div className="card-title">🧑‍🎓 Overall Student Growth</div>
           <StudentsTrendChart data={s.studentsTrend} />
         </div>
         <div className="card">
           <div className="card-title">💃 Classes — Online vs In-Person</div>
           <ClassesMixChart data={s.classesMix} />
         </div>
+      </div>
+
+      {/* Upcoming this week */}
+      <div className="card mb-5">
+        <div className="card-title">📅 Upcoming This Week</div>
+        {s.upcomingThisWeek.length === 0 ? (
+          <div className="rounded-lg border-[1.5px] border-dashed border-line bg-cream/40 py-6 text-center text-[13px] text-muted">
+            Nothing scheduled in the next 7 days.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="dt">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Event / Workshop</th>
+                  <th>Location</th>
+                  <th>Booked</th>
+                  <th>Capacity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.upcomingThisWeek.map((e) => {
+                  const pct = e.capacity > 0 ? Math.round((e.booked / e.capacity) * 100) : 0;
+                  return (
+                    <tr key={e.id}>
+                      <td className="whitespace-nowrap font-semibold text-ink">
+                        {new Date(e.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      </td>
+                      <td>
+                        {e.title}{" "}
+                        <span className="badge badge-gray ml-1">{e.kind === "workshop" ? "Workshop" : "Event"}</span>
+                      </td>
+                      <td className="text-[12px] text-muted">{e.location}</td>
+                      <td className="whitespace-nowrap">
+                        {e.booked}/{e.capacity}
+                      </td>
+                      <td>
+                        <span className={`badge ${pct >= 90 ? "badge-danger" : pct >= 60 ? "badge-warn" : "badge-ok"}`}>
+                          {pct}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Needs attention */}

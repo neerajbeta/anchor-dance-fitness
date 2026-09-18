@@ -59,6 +59,8 @@ export async function POST(req: NextRequest) {
       password: b.password,
       roleId: b.roleId,
       status: b.status === "inactive" ? "inactive" : "active",
+      phone: b.phone,
+      location: b.location,
     });
     await recordAuditLog({
       userId: auth.actor.id,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { exchangeCodeForToken, fetchGoogleProfile } from "@/lib/auth/google";
 import { createSessionToken, USER_SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth/session";
 import { upsertOAuthUser, DbNotConfiguredError } from "@/lib/services";
+import { sendWelcomeEmail } from "@/lib/email/notify";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest) {
     if (!profile.emailVerified) return fail("google_email_unverified");
 
     const user = await upsertOAuthUser({ email: profile.email, name: profile.name });
+    if (user.created) void sendWelcomeEmail(user, origin);
     const token = await createSessionToken({ email: user.email, name: user.name, role: user.role });
 
     const res = NextResponse.redirect(new URL("/portal", origin));

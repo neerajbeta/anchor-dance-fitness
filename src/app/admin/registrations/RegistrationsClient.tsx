@@ -194,7 +194,14 @@ export function RegistrationsClient({
                       {TYPE_BADGE[r.type].label}
                     </span>
                   </td>
-                  <td className="max-w-[160px] text-[12px]">{r.detail}</td>
+                  <td className="max-w-[160px] text-[12px]">
+                    {r.detail}
+                    {r.notes && (
+                      <div className="mt-1 line-clamp-2 text-[11px] text-muted" title={r.notes}>
+                        📝 {r.notes}
+                      </div>
+                    )}
+                  </td>
                   <td>
                     {r.category ? (
                       <span className={`badge ${CAT_COLOR[r.category] ?? "badge-gray"}`}>

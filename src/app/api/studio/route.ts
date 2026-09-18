@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { getStudioBookings } from "@/lib/stats";
 import { createStudioBlock, listStudioBlocks, DbNotConfiguredError } from "@/lib/services";
+import { isStudioLocation, STUDIO_LOCATION_ERROR } from "@/lib/studioLocations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,9 @@ export async function POST(req: NextRequest) {
         { error: "location, date, startTime and endTime are required" },
         { status: 400 }
       );
+    }
+    if (!isStudioLocation(b.location)) {
+      return NextResponse.json({ error: STUDIO_LOCATION_ERROR }, { status: 400 });
     }
     if (b.endTime <= b.startTime) {
       return NextResponse.json({ error: "End time must be after start time" }, { status: 400 });

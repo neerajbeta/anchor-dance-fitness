@@ -12,6 +12,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["next", "dev", "-p", "3001"],
       "port": 3001
+    },
+    {
+      "name": "anchor-fitness-migrate",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "-p", "3007"],
+      "port": 3007
     }
   ]
 }

@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { Avatar, SectionHead, toneClass } from "@/components/ui";
-import { CATEGORIES, LEVELS as LEVELS_FALLBACK, PLANS, type Registration } from "@/lib/data";
+import { CATEGORIES, LEVELS as LEVELS_FALLBACK, type Registration } from "@/lib/data";
+import { INTERVAL_MONTHS, planTotal, sortPlans, type Plan } from "@/lib/plans";
+import { DatePicker } from "@/components/theme/DatePicker";
 
 type Student = {
   id: string;
@@ -49,13 +51,13 @@ export function BookOnBehalfClient({
     name: "",
     email: "",
     mode: "online" as "online" | "offline",
-    location: "Stockholm",
+    location: "", // defaults to the first location from the Locations table
     category: "Bollywood Dance",
     level: "Beginner",
     age: "",
-    start: "2025-08-04",
-    end: "2025-10-31",
-    plan: "quarterly",
+    start: "",
+    end: "",
+    plan: "",
     payment: "external",
   });
 
@@ -67,6 +69,7 @@ export function BookOnBehalfClient({
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [categoryList, setCategoryList] = useState<{ id: string; name: string }[]>([]);
   const [levelList, setLevelList] = useState<{ id: string; name: string }[]>([]);
+  const [planList, setPlanList] = useState<Plan[]>([]);
   const [classId, setClassId] = useState("");
 
   const [coupon, setCoupon] = useState("");
@@ -80,16 +83,37 @@ export function BookOnBehalfClient({
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    fetch("/api/locations").then((r) => r.json()).then((j) => setLocations(j.data ?? []));
+    fetch("/api/locations")
+      .then((r) => r.json())
+      .then((j) => {
+        const list: Location[] = j.data ?? [];
+        setLocations(list);
+        setForm((f) => ({ ...f, location: f.location || list[0]?.label || "" }));
+      });
     fetch("/api/classes").then((r) => r.json()).then((j) => setClasses(j.data ?? []));
     fetch("/api/categories").then((r) => r.json()).then((j) => setCategoryList(j.data ?? []));
     fetch("/api/levels").then((r) => r.json()).then((j) => setLevelList(j.data ?? []));
+    fetch("/api/plans")
+      .then((r) => r.json())
+      .then((j) => {
+        const list = sortPlans((j.data ?? []) as Plan[]);
+        setPlanList(list);
+        const fallback = (list.find((p) => p.interval === "quarterly") ?? list[0])?.code ?? "";
+        setForm((f) => ({ ...f, plan: list.some((p) => p.code === f.plan) ? f.plan : fallback }));
+      });
+    // Default period: today → 3 months (set on the client to avoid an SSR date mismatch).
+    const today = new Date();
+    const later = new Date(today.getFullYear(), today.getMonth() + 3, today.getDate());
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    setForm((f) => ({ ...f, start: f.start || iso(today), end: f.end || iso(later) }));
   }, []);
 
   const available = useMemo(
     () =>
       classes.filter(
-        (c) => c.mode === form.mode && (form.mode === "online" || !form.location || c.location === form.location)
+        // Same rule as the student Book a Class page: both modes filter by studio location.
+        (c) => c.mode === form.mode && (!form.location || c.location === form.location)
       ),
     [classes, form.mode, form.location]
   );
@@ -101,16 +125,11 @@ export function BookOnBehalfClient({
     if (c) setForm((f) => ({ ...f, category: c.category, level: c.level }));
   }
 
-  const selectedPlan = PLANS.find((p) => p.id === form.plan);
-  const months = form.plan === "quarterly" ? 3 : form.plan === "biannual" ? 6 : form.plan === "annual" ? 12 : 1;
-  // Real class price when a class is selected; otherwise fall back to the plan's own pricing.
-  const baseAmount = selectedClass?.price
-    ? selectedClass.price
-    : selectedPlan
-    ? selectedPlan.id === "demo"
-      ? selectedPlan.price
-      : selectedPlan.price * months
-    : 0;
+  const selectedPlan = planList.find((p) => p.code === form.plan) ?? null;
+  const months = selectedPlan ? INTERVAL_MONTHS[selectedPlan.interval] : 0;
+  // Same rule as the student Choose Plan screen: class price × plan months
+  // (demo / one-time plans charge the plan price once).
+  const baseAmount = selectedPlan ? planTotal(selectedPlan, selectedClass?.price) : selectedClass?.price ?? 0;
   const discountAmount = applied
     ? applied.type === "flat"
       ? Math.min(baseAmount, applied.flatAmount)
@@ -174,7 +193,7 @@ export function BookOnBehalfClient({
       level: form.level,
       mode: form.mode,
       period: `${form.start} – ${form.end}`,
-      plan: PLANS.find((p) => p.id === form.plan)?.name ?? form.plan,
+      plan: selectedPlan?.name ?? form.plan,
       paid: form.payment === "waived" ? "onetime" : form.payment === "link" ? "pending" : "paid",
       status: "Pending Batch",
       statusTone: "warn",
@@ -411,7 +430,7 @@ export function BookOnBehalfClient({
             </div>
 
             <div className="mb-3">
-              <label className="field-label">Location / City *</label>
+              <label className="field-label">Studio Location *</label>
               <select
                 className="field"
                 value={form.location}
@@ -420,7 +439,7 @@ export function BookOnBehalfClient({
                   setClassId("");
                 }}
               >
-                {locations.length === 0 && <option>Stockholm</option>}
+                {locations.length === 0 && <option value="">No locations — add one under Catalog → Locations</option>}
                 {locations.map((l) => (
                   <option key={l.id} value={l.label}>
                     {l.flag} {l.label}
@@ -496,20 +515,29 @@ export function BookOnBehalfClient({
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="field-label">Start Date *</label>
-                <input className="field" type="date" value={form.start} onChange={(e) => set("start", e.target.value)} />
+                <DatePicker variant="admin" value={form.start} onChange={(v) => set("start", v)} placeholder="Select start date" />
               </div>
               <div>
                 <label className="field-label">End Date *</label>
-                <input className="field" type="date" value={form.end} onChange={(e) => set("end", e.target.value)} />
+                <DatePicker
+                  variant="admin"
+                  value={form.end}
+                  onChange={(v) => set("end", v)}
+                  min={form.start || undefined}
+                  initialMonth={form.start || undefined}
+                  placeholder="Select end date"
+                />
               </div>
             </div>
 
             <div className="mt-3">
               <label className="field-label">Plan *</label>
               <select className="field" value={form.plan} onChange={(e) => set("plan", e.target.value)}>
-                {PLANS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} — SEK {p.price}
+                {planList.length === 0 && <option value="">No active plans — add one under Catalog → Plans</option>}
+                {planList.map((p) => (
+                  <option key={p.id} value={p.code}>
+                    {p.name} — SEK {p.price.toLocaleString()}
+                    {INTERVAL_MONTHS[p.interval] > 0 ? "/mo" : ""}
                   </option>
                 ))}
               </select>
@@ -554,15 +582,11 @@ export function BookOnBehalfClient({
             {/* Order summary */}
             <div className="mt-3 rounded-lg border-[1.5px] border-line bg-cream/60 p-4">
               <Row
-                k={
-                  selectedClass
-                    ? `${selectedClass.name} (class price)`
-                    : `${selectedPlan?.name ?? "Plan"}${
-                        !selectedClass && selectedPlan && selectedPlan.id !== "demo"
-                          ? ` (SEK ${selectedPlan.price} × ${months} mo)`
-                          : ""
-                      }`
-                }
+                k={`${selectedClass ? `${selectedClass.name} · ` : ""}${selectedPlan?.name ?? "Plan"}${
+                  selectedPlan && months > 0
+                    ? ` (SEK ${(selectedClass?.price || selectedPlan.price).toLocaleString()} × ${months} mo)`
+                    : ""
+                }`}
                 v={`SEK ${baseAmount.toLocaleString()}`}
               />
               {applied && (

@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
-import { LogoMark, LogoWordmark } from "@/components/Logo";
+import { Suspense, useEffect, useState } from "react";
+import { BrandLogo, BrandMark } from "@/components/theme/BrandLogo";
+import { Input } from "@/components/theme/Input";
+import { Button } from "@/components/theme/Button";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { GoogleButton } from "@/components/GoogleButton";
 import { BookDemoButton } from "@/components/BookDemoButton";
 
@@ -27,13 +30,24 @@ function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const errorCode = searchParams.get("error");
-  const googleErrorMessage = errorCode ? GOOGLE_ERRORS[errorCode] ?? "Sign-in failed. Please try again." : null;
+  const googleErrorMessage = errorCode
+    ? GOOGLE_ERRORS[errorCode] ?? "Sign-in failed. Please try again."
+    : null;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const errorMessage = loginError ?? googleErrorMessage;
+
+  // Studio cities for the brand panel, from the admin-managed Locations table.
+  const [cities, setCities] = useState<string[]>([]);
+  useEffect(() => {
+    fetch("/api/locations")
+      .then((r) => r.json())
+      .then((j) => setCities(((j.data ?? []) as { label: string }[]).map((l) => l.label)))
+      .catch(() => {});
+  }, []);
 
   async function signIn() {
     setBusy(true);
@@ -55,19 +69,15 @@ function LoginPageInner() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
+    <div className="app-canvas flex min-h-screen flex-col md:flex-row">
       {/* Brand panel */}
-      <div className="relative flex flex-col justify-center overflow-hidden bg-ink px-12 py-16 text-white md:flex-1">
-        <div
-          className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full opacity-25 blur-3xl"
-          style={{ background: "radial-gradient(circle,#EF5B2B,transparent 70%)" }}
-        />
+      <div className="ink-panel noise-overlay relative flex flex-col justify-center overflow-hidden px-12 py-16 text-white md:flex-1">
         <div className="relative z-10 max-w-md">
-          <LogoMark size={56} className="mb-6" />
-          <div className="mb-3 text-[11px] font-bold uppercase tracking-[1.5px] text-brand-400">
-            Anchor Fitness Portal
+          <BrandMark size={56} className="mb-6" />
+          <div className="mb-3 text-[11px] font-bold uppercase tracking-[1.5px] text-accent-warm">
+            Anchor Dance &amp; Fitness Portal
           </div>
-          <h1 className="mb-4 font-display text-4xl font-extrabold leading-tight">
+          <h1 className="mb-4 font-oswald text-4xl font-extrabold italic leading-tight">
             Move. Grow.
             <br />
             Stay Connected.
@@ -79,10 +89,12 @@ function LoginPageInner() {
             {[
               "Dance classes · Workshops & Events · Studio hire",
               "Online & offline modes — shown on every booking & receipt",
-              "Multi-city: Stockholm · Mumbai · London · NYC",
-            ].map((t) => (
+              cities.length > 0 ? `Multi-city: ${cities.join(" · ")}` : null,
+            ]
+              .filter((t): t is string => Boolean(t))
+              .map((t) => (
               <li key={t} className="flex items-center gap-2.5">
-                <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-brand-500" />
+                <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent" />
                 {t}
               </li>
             ))}
@@ -94,9 +106,10 @@ function LoginPageInner() {
       </div>
 
       {/* Form panel */}
-      <div className="flex flex-col justify-center bg-cream px-8 py-12 md:w-[440px] md:px-10">
-        <div className="mb-6">
-          <LogoWordmark size={34} dark />
+      <div className="auth-panel flex flex-col justify-center px-8 py-12 md:w-[460px] md:px-10">
+        <div className="mb-6 flex items-center justify-between">
+          <BrandLogo variant="light" size="sm" href="/" />
+          <ThemeToggle tone="on-light" showLabel={false} />
         </div>
 
         {errorMessage && (
@@ -105,50 +118,48 @@ function LoginPageInner() {
           </div>
         )}
 
-        <div className="animate-scale-in">
-          <h2 className="mb-1 font-display text-2xl font-bold text-ink">Welcome back 👋</h2>
-          <p className="mb-5 text-[13px] text-slate">Sign in to continue</p>
+        <div className="animate-sheet">
+          <h2 className="mb-1 font-oswald text-2xl font-bold italic text-copy">Welcome back 👋</h2>
+          <p className="mb-5 text-[13px] text-copy-dim">Sign in to continue</p>
           <GoogleButton label="Continue with Google" />
           <Divider label="or sign in with email" />
-          <div className="mb-3.5">
-            <label className="field-label">Email</label>
-            <input
-              className="field"
+          <label className="mb-3.5 block">
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.08em] text-copy-dim">
+              Email
+            </span>
+            <Input
               type="email"
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
-          </div>
-          <div className="mb-1">
-            <label className="field-label">Password</label>
-            <input
-              className="field"
+          </label>
+          <label className="mb-1 block">
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.08em] text-copy-dim">
+              Password
+            </span>
+            <Input
               type="password"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && signIn()}
             />
-          </div>
+          </label>
           <div className="mb-4 text-right">
-            <a className="cursor-pointer text-xs font-semibold text-brand-600">Forgot password?</a>
+            <span className="cursor-pointer text-xs font-semibold text-accent">Forgot password?</span>
           </div>
-          <button
-            type="button"
-            onClick={signIn}
-            className={`btn btn-primary btn-block btn-lg mb-3 ${busy ? "is-disabled" : ""}`}
-          >
+          <Button fullWidth size="lg" loading={busy} onClick={signIn} className="mb-3">
             {busy ? "Signing in…" : "Sign In"}
-          </button>
-          <p className="text-center text-[13px] text-slate">
+          </Button>
+          <p className="text-center text-[13px] text-copy-dim">
             No account?{" "}
-            <Link href="/register" className="font-semibold text-brand-600">
+            <Link href="/register" className="font-semibold text-accent">
               Sign Up
             </Link>
           </p>
           <div className="mt-2 text-center">
-            <Link href="/admin/login" className="text-[13px] font-semibold text-brand-600">
+            <Link href="/admin/login" className="text-[13px] font-semibold text-accent">
               🔐 Admin Login
             </Link>
           </div>
@@ -160,10 +171,10 @@ function LoginPageInner() {
 
 function Divider({ label }: { label: string }) {
   return (
-    <div className="my-4 flex items-center gap-3 text-xs text-muted">
-      <span className="h-px flex-1 bg-line" />
+    <div className="my-4 flex items-center gap-3 text-xs text-copy-dim">
+      <span className="h-px flex-1 bg-hairline" />
       {label}
-      <span className="h-px flex-1 bg-line" />
+      <span className="h-px flex-1 bg-hairline" />
     </div>
   );
 }

@@ -1,140 +1,198 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { TopNav } from "@/components/TopNav";
+import { useEffect, useMemo, useState } from "react";
+import { Select } from "@/components/theme/Input";
+import { StudentShell } from "@/components/theme/shells";
+import { Badge } from "@/components/theme/Card";
+import { Button } from "@/components/theme/Button";
+import { PageHeader } from "@/components/theme/states";
 import { type EventItem } from "@/lib/data";
 import { saveDraft } from "@/lib/bookingDraft";
 
-const MODE_FILTERS = ["All", "💻 Online", "🏃 In-Person"];
-const TYPE_FILTERS = ["All", "🎭 Workshop", "⭐ Event"];
+type Filters = { location: string; mode: "all" | "online" | "offline"; kind: "all" | "workshop" | "event" };
+
+const MODE_FILTERS: { value: Filters["mode"]; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "online", label: "💻 Online" },
+  { value: "offline", label: "🏃 In-Person" },
+];
+const TYPE_FILTERS: { value: Filters["kind"]; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "workshop", label: "🎭 Workshop" },
+  { value: "event", label: "⭐ Event" },
+];
 
 export function WorkshopsClient({
   upcoming,
   past,
   source,
+  userName,
 }: {
   upcoming: EventItem[];
   past: EventItem[];
   source: "database" | "mock";
+  userName?: string | null;
 }) {
+  const [filters, setFilters] = useState<Filters>({ location: "", mode: "all", kind: "all" });
+  // Workshops/events this student already holds — shown as booked, no second booking.
+  const [bookedIds, setBookedIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    fetch("/api/my-bookings")
+      .then((r) => r.json())
+      .then((j) => setBookedIds(new Set(j.data?.eventIds ?? [])))
+      .catch(() => {});
+  }, []);
+  const matches = (e: EventItem) =>
+    (!filters.location || e.location === filters.location) &&
+    (filters.mode === "all" || e.mode === filters.mode) &&
+    (filters.kind === "all" || e.kind === filters.kind);
+  const shownUpcoming = useMemo(() => upcoming.filter(matches), [upcoming, filters]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownPast = useMemo(() => past.filter(matches), [past, filters]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filtered = filters.location !== "" || filters.mode !== "all" || filters.kind !== "all";
+
   return (
-    <div className="flex min-h-screen flex-col">
-      <TopNav
-        links={[
-          { label: "My Portal", href: "/portal" },
-          { label: "Sign Out", href: "/login" },
-        ]}
-      />
-      <main className="mx-auto w-full max-w-6xl px-6 py-8 anim-fade">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="font-display text-2xl font-bold text-ink">Workshops &amp; Events</h1>
-          {source === "database" ? (
-            <span className="badge badge-ok" title="Reading from PostgreSQL">
-              ● Live database
-            </span>
+    <StudentShell userName={userName}>
+      <PageHeader
+        title="Workshops & Events"
+        description="Browse upcoming sessions — limited seats. Your class conflict slots are blocked automatically."
+        action={
+          source === "database" ? (
+            <Badge tone="success">● Live database</Badge>
           ) : (
-            <span className="badge badge-warn" title="No DATABASE_URL configured — sample data">
-              ● Sample data
-            </span>
-          )}
-        </div>
-        <p className="mb-5 text-[13px] text-slate">
-          Browse upcoming sessions — limited seats. Your class conflict slots are blocked
-          automatically.
-        </p>
+            <Badge tone="warning">● Sample data</Badge>
+          )
+        }
+      />
 
-        <FilterBar />
+      <FilterBar filters={filters} onChange={setFilters} />
 
-        <div className="mb-3 flex items-center gap-2 text-[15px] font-bold text-ink">
-          Upcoming{" "}
-          <span className={`badge ${upcoming.length ? "badge-ok" : "badge-gray"}`}>
-            {upcoming.length} available
-          </span>
-        </div>
+      <div className="mb-3 flex items-center gap-2 text-[15px] font-bold text-copy">
+        Upcoming{" "}
+        <Badge tone={shownUpcoming.length ? "success" : "neutral"}>{shownUpcoming.length} available</Badge>
+      </div>
 
-        {upcoming.length === 0 ? (
+      {shownUpcoming.length === 0 ? (
+        filtered && upcoming.length > 0 ? (
+          <EmptyState
+            title="Nothing matches these filters"
+            sub="Try another location, mode or type."
+          />
+        ) : (
           <EmptyState
             title="No upcoming workshops or events"
             sub="New sessions published by an admin will appear here."
           />
-        ) : (
-          <div className="mb-10 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {upcoming.map((e) => (
+        )
+      ) : (
+        <div className="mb-10 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+          {shownUpcoming.map((e) => (
+            <EventCard key={e.id} e={e} booked={bookedIds.has(e.id)} />
+          ))}
+        </div>
+      )}
+
+      {shownPast.length > 0 && (
+        <>
+          <hr className="mt-10 border-hairline" />
+          <div className="mb-1 mt-6 text-[15px] font-bold text-copy-dim">Past Workshops &amp; Events</div>
+          <p className="mb-4 text-[13px] text-copy-dim">
+            Browse what we&apos;ve done — photos and recordings where available.
+          </p>
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {shownPast.map((e) => (
               <EventCard key={e.id} e={e} />
             ))}
           </div>
-        )}
-
-        {past.length > 0 && (
-          <>
-            <hr className="mt-10 border-line" />
-            <div className="mb-1 mt-6 text-[15px] font-bold text-slate">
-              Past Workshops &amp; Events
-            </div>
-            <p className="mb-4 text-[13px] text-muted">
-              Browse what we&apos;ve done — photos and recordings where available.
-            </p>
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-              {past.map((e) => (
-                <EventCard key={e.id} e={e} />
-              ))}
-            </div>
-          </>
-        )}
-      </main>
-    </div>
+        </>
+      )}
+    </StudentShell>
   );
 }
 
 function EmptyState({ title, sub }: { title: string; sub: string }) {
   return (
-    <div className="flex flex-col items-center rounded-xl border-[1.5px] border-dashed border-line bg-white py-16 text-center shadow-card">
+    <div className="flex flex-col items-center rounded-[22px] border-[1.5px] border-dashed border-hairline bg-surface py-16 text-center shadow-[var(--shadow-sm)]">
       <div className="text-4xl">🎭</div>
-      <div className="mt-2 font-bold text-ink">{title}</div>
-      <div className="mt-1 text-[13px] text-muted">{sub}</div>
+      <div className="mt-2 font-bold text-copy">{title}</div>
+      <div className="mt-1 text-[13px] text-copy-dim">{sub}</div>
     </div>
   );
 }
 
-function FilterBar() {
-  const [locOpts, setLocOpts] = useState<string[]>(["All"]);
+function FilterBar({ filters, onChange }: { filters: Filters; onChange: (f: Filters) => void }) {
+  const [locations, setLocations] = useState<{ label: string; flag: string | null }[]>([]);
   useEffect(() => {
     fetch("/api/locations")
       .then((r) => r.json())
-      .then((j) =>
-        setLocOpts(["All", ...(j.data ?? []).map((l: { label: string; flag: string | null }) => `${l.flag ?? ""} ${l.label}`)])
-      );
+      .then((j) => setLocations(j.data ?? []))
+      .catch(() => {});
   }, []);
   return (
-    <div className="mb-6 flex flex-wrap items-center gap-2 rounded-xl border-[1.5px] border-line bg-white px-4 py-3.5 shadow-card">
-      <FilterGroup label="Location:" options={locOpts} />
+    <div className="mb-6 flex flex-wrap items-center gap-2 rounded-[16px] border border-hairline bg-surface px-4 py-3.5 shadow-[var(--shadow-sm)]">
+      {/* A dropdown rather than chips — the list grows with every studio added. */}
+      <label className="flex items-center gap-2">
+        <span className="whitespace-nowrap text-[11px] font-bold uppercase tracking-wide text-copy-dim">Location:</span>
+        <Select
+          className="h-9 w-auto min-w-[190px] py-1 text-[13px]"
+          value={filters.location}
+          onChange={(e) => onChange({ ...filters, location: e.target.value })}
+        >
+          <option value="">🌍 All locations</option>
+          {locations.map((l) => (
+            <option key={l.label} value={l.label}>
+              {l.flag ?? ""} {l.label}
+            </option>
+          ))}
+        </Select>
+      </label>
       <Sep />
-      <FilterGroup label="Mode:" options={MODE_FILTERS} />
+      <FilterGroup
+        label="Mode:"
+        options={MODE_FILTERS}
+        value={filters.mode}
+        onChange={(mode) => onChange({ ...filters, mode })}
+      />
       <Sep />
-      <FilterGroup label="Type:" options={TYPE_FILTERS} />
+      <FilterGroup
+        label="Type:"
+        options={TYPE_FILTERS}
+        value={filters.kind}
+        onChange={(kind) => onChange({ ...filters, kind })}
+      />
     </div>
   );
 }
 
-function FilterGroup({ label, options }: { label: string; options: string[] }) {
-  const [active, setActive] = useState(0);
+function FilterGroup<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
   return (
     <>
-      <span className="whitespace-nowrap text-[11px] font-bold uppercase tracking-wide text-muted">
+      <span className="whitespace-nowrap text-[11px] font-bold uppercase tracking-wide text-copy-dim">
         {label}
       </span>
-      {options.map((o, i) => (
+      {options.map((o) => (
         <button
-          key={o}
-          onClick={() => setActive(i)}
-          className={`rounded-full border-[1.5px] px-3 py-1 text-xs font-semibold transition-colors ${
-            active === i
-              ? "border-ink bg-ink text-white"
-              : "border-line bg-white text-slate hover:border-brand-400 hover:text-brand-600"
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          aria-pressed={value === o.value}
+          className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+            value === o.value
+              ? "border-chrome bg-chrome text-white"
+              : "border-hairline bg-surface text-copy-dim hover:border-accent hover:text-accent"
           }`}
         >
-          {o}
+          {o.label}
         </button>
       ))}
     </>
@@ -142,10 +200,10 @@ function FilterGroup({ label, options }: { label: string; options: string[] }) {
 }
 
 function Sep() {
-  return <div className="mx-1 h-6 w-px bg-line" />;
+  return <div className="mx-1 h-6 w-px bg-hairline" />;
 }
 
-function EventCard({ e }: { e: EventItem }) {
+function EventCard({ e, booked = false }: { e: EventItem; booked?: boolean }) {
   const router = useRouter();
   const full = e.seatsLeft === 0 && !e.past;
   const accent = e.kind === "workshop" ? "text-warn" : "text-grape";
@@ -166,7 +224,7 @@ function EventCard({ e }: { e: EventItem }) {
 
   return (
     <div
-      className={`group overflow-hidden rounded-xl border-[1.5px] border-line bg-white shadow-card transition-all hover:-translate-y-1 hover:border-brand-400 hover:shadow-glow ${
+      className={`group overflow-hidden rounded-[18px] border border-hairline bg-surface shadow-[var(--shadow-sm)] transition-all hover:-translate-y-1 hover:border-accent/40 hover:shadow-[var(--shadow-md)] ${
         e.past ? "opacity-80" : ""
       } ${full ? "opacity-70" : ""}`}
     >
@@ -196,41 +254,48 @@ function EventCard({ e }: { e: EventItem }) {
       </div>
 
       <div className="p-4">
-        <div className={`mb-1 text-[11px] font-bold ${e.past ? "text-muted" : accent}`}>
+        <div className={`mb-1 text-[11px] font-bold ${e.past ? "text-copy-dim" : accent}`}>
           📅 {e.date}
         </div>
-        <div className="mb-1.5 text-[15px] font-extrabold text-ink">{e.title}</div>
-        <p className="mb-2 text-[13px] leading-relaxed text-muted">{e.desc}</p>
+        <div className="mb-1.5 text-[15px] font-extrabold text-copy">{e.title}</div>
+        <p className="mb-2 text-[13px] leading-relaxed text-copy-dim">{e.desc}</p>
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className={`badge ${e.mode === "online" ? "badge-info" : "badge-ok"}`}>
+          <Badge tone={e.mode === "online" ? "info" : "success"}>
             {e.mode === "online" ? "💻 Online" : "🏃 In-Person"}
-          </span>
-          <span className="text-xs text-muted">📍 {e.location}</span>
-          {!e.past && e.coach && <span className="text-xs text-muted">{e.coach}</span>}
+          </Badge>
+          <span className="text-xs text-copy-dim">📍 {e.location}</span>
+          {!e.past && e.coach && <span className="text-xs text-copy-dim">{e.coach}</span>}
         </div>
 
         {e.past ? (
-          <div className="flex items-center justify-between">
-            <span className="badge badge-gray">Completed · {e.attended} attended</span>
+          <Badge tone="neutral">Completed · {e.attended} attended</Badge>
+        ) : booked ? (
+          <div className="flex items-center justify-between gap-2">
+            <Badge tone="success">✓ You&apos;re booked</Badge>
+            <Button variant="secondary" size="sm" onClick={() => router.push("/portal")}>
+              View in My Portal
+            </Button>
           </div>
         ) : full ? (
           <div className="flex items-center justify-between">
-            <span className="badge badge-danger">0 seats left</span>
-            <button className="btn btn-ghost btn-sm">+ Join Waitlist</button>
+            <Badge tone="danger">0 seats left</Badge>
+            <Button variant="secondary" size="sm" onClick={() => {}}>
+              + Join Waitlist
+            </Button>
           </div>
         ) : (
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-[11px] text-muted">Seats left</div>
-              <div className="font-display text-lg font-extrabold text-ink">
-                {e.seatsLeft} <span className="text-[11px] text-muted">/{e.seatsTotal}</span>
+              <div className="text-[11px] text-copy-dim">Seats left</div>
+              <div className="font-oswald text-lg font-extrabold text-copy">
+                {e.seatsLeft} <span className="text-[11px] text-copy-dim">/{e.seatsTotal}</span>
               </div>
             </div>
             <div className="text-right">
-              <div className="text-base font-extrabold text-brand-600">SEK {e.price}</div>
-              <button onClick={bookNow} className="btn btn-primary btn-sm mt-2">
+              <div className="text-base font-extrabold text-accent">SEK {e.price}</div>
+              <Button size="sm" className="mt-2" onClick={bookNow}>
                 Book Now →
-              </button>
+              </Button>
             </div>
           </div>
         )}

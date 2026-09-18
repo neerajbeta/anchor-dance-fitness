@@ -19,8 +19,36 @@ const MODULE_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   reports: "Reports",
   users: "User Management",
-  roles: "Roles & Permissions",
+  roles: "Role Management",
+  classes: "Classes",
+  categories: "Categories",
+  levels: "Levels",
+  locations: "Locations",
+  discounts: "Discounts",
+  plans: "Plans",
+  events: "Events & Workshops",
+  book_on_behalf: "Book on Behalf",
+  studio: "Studio Bookings",
+  payments: "Payments",
+  enquiries: "Enquiries",
+  announcements: "Announcements",
+  settings: "Portal Settings",
 };
+
+// Fixed left-border/badge color per default role, so the card grid reads at a glance —
+// matches the design mockup. Any other custom role falls back to the brand tone.
+const ROLE_COLORS: Record<string, { hex: string; badge: string }> = {
+  "super-admin": { hex: "#8B5CF6", badge: "badge-grape" },
+  admin: { hex: "#3B82C4", badge: "badge-info" },
+  manager: { hex: "#2E9E6B", badge: "badge-ok" },
+  staff: { hex: "#E0972B", badge: "badge-warn" },
+  coach: { hex: "#DC4A3D", badge: "badge-danger" },
+};
+const DEFAULT_ROLE_COLOR = { hex: "#EF5B2B", badge: "badge-brand" };
+
+function roleColor(slug: string) {
+  return ROLE_COLORS[slug] ?? DEFAULT_ROLE_COLOR;
+}
 
 export function RolesManager() {
   const { can } = usePermissions();
@@ -35,14 +63,29 @@ export function RolesManager() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [matrixBusy, setMatrixBusy] = useState(false);
   const [matrixMsg, setMatrixMsg] = useState<string | null>(null);
+  const [rolePerms, setRolePerms] = useState<Record<string, Set<string>>>({});
+  const [cardFilter, setCardFilter] = useState<"all" | "system" | "custom" | "active" | "inactive">("all");
 
   async function load() {
     const [r, p] = await Promise.all([
       fetch("/api/roles").then((res) => res.json()),
       fetch("/api/permissions").then((res) => res.json()),
     ]);
-    setRoles(r.data ?? []);
+    const roleRows: Role[] = r.data ?? [];
+    setRoles(roleRows);
     setPermissions(p.data ?? []);
+
+    // Every role's permission set — small N, one round trip each, used for the summary tags on
+    // each card and the "all roles at a glance" matrix below.
+    const allSlugs = new Set<string>((p.data ?? []).map((perm: Permission) => perm.slug));
+    const entries = await Promise.all(
+      roleRows.map(async (role): Promise<[string, Set<string>]> => {
+        if (role.isSystemRole) return [role.id, allSlugs];
+        const j = await fetch(`/api/roles/${role.id}`).then((res) => res.json());
+        return [role.id, new Set<string>(j.data?.permissionSlugs ?? [])];
+      })
+    );
+    setRolePerms(Object.fromEntries(entries));
   }
   useEffect(() => {
     load();
@@ -127,15 +170,10 @@ export function RolesManager() {
     load();
   }
 
-  async function openMatrix(r: Role) {
+  function openMatrix(r: Role) {
     setMatrixMsg(null);
     setManagingRole(r);
-    if (r.isSystemRole) {
-      setChecked(new Set(permissions.map((p) => p.slug)));
-      return;
-    }
-    const j = await fetch(`/api/roles/${r.id}`).then((res) => res.json());
-    setChecked(new Set(j.data?.permissionSlugs ?? []));
+    setChecked(new Set(rolePerms[r.id] ?? []));
   }
 
   function toggle(slug: string) {
@@ -171,6 +209,7 @@ export function RolesManager() {
       const jr = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(jr.error || "Failed");
       setMatrixMsg("Saved.");
+      setRolePerms((prev) => ({ ...prev, [managingRole.id]: new Set(checked) }));
     } catch (err) {
       setMatrixMsg(err instanceof Error ? err.message : "Failed to save.");
     } finally {
@@ -182,67 +221,150 @@ export function RolesManager() {
   const canEditRole = can("roles.edit");
   const canDeleteRole = can("roles.delete");
 
+  // Which modules a role has at least one permission in — the compact tag list on each card.
+  function moduleTagsFor(r: Role): string[] {
+    if (r.isSystemRole) return ["All Modules"];
+    const mySlugs = rolePerms[r.id] ?? new Set<string>();
+    const mods = new Set(permissions.filter((p) => mySlugs.has(p.slug)).map((p) => p.module));
+    return Array.from(mods).map((m) => MODULE_LABELS[m] ?? m);
+  }
+
+  const filteredRoles = roles.filter((r) => {
+    if (cardFilter === "system") return r.isSystemRole;
+    if (cardFilter === "custom") return !r.isSystemRole;
+    if (cardFilter === "active") return r.status === "active";
+    if (cardFilter === "inactive") return r.status === "inactive";
+    return true;
+  });
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="card">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="card-title mb-0">🔐 Roles</div>
-          {can("roles.create") && (
-            <button className="btn btn-primary btn-sm" onClick={startCreate}>
-              + Add New Role
-            </button>
-          )}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-xl font-bold text-ink">Role Management</h1>
+          <p className="text-[13px] text-slate">
+            Define what each role can access. System roles cannot be deleted while in use.
+          </p>
         </div>
+        {can("roles.create") && (
+          <button type="button" className="btn btn-primary" onClick={startCreate}>
+            + Create Role
+          </button>
+        )}
+      </div>
 
-        <div className="flex flex-col gap-2">
-          {roles.map((r) => (
+      <div className="card">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-muted">Filter:</span>
+          {(
+            [
+              { value: "all", label: "All Roles" },
+              { value: "system", label: "System Roles" },
+              { value: "custom", label: "Custom Roles" },
+              { value: "active", label: "Active" },
+              { value: "inactive", label: "Inactive" },
+            ] as const
+          ).map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => setCardFilter(o.value)}
+              className={`rounded-full border-[1.5px] px-3 py-1 text-xs font-semibold transition-colors ${
+                cardFilter === o.value
+                  ? "border-ink bg-ink text-white"
+                  : "border-line bg-white text-slate hover:border-brand-400 hover:text-brand-600"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {filteredRoles.map((r) => {
+          const color = roleColor(r.slug);
+          return (
             <div
               key={r.id}
-              className="flex items-center justify-between rounded-lg border-[1.5px] border-line bg-white px-3.5 py-2.5"
+              className="rounded-xl border-[1.5px] bg-white p-4 shadow-card"
+              style={{ borderColor: `${color.hex}55`, borderLeftWidth: 4, borderLeftColor: color.hex }}
             >
-              <div>
-                <div className="flex items-center gap-2 text-[13px] font-bold text-ink">
-                  {r.name}
-                  {r.isSystemRole && <span className="badge badge-brand">System</span>}
-                  <span className={`badge ${r.status === "active" ? "badge-ok" : "badge-gray"}`}>{r.status}</span>
-                  <span className="badge badge-info">{r.userCount} user{r.userCount === 1 ? "" : "s"}</span>
+              <div className="mb-2 flex items-center justify-between">
+                <span className={`badge ${color.badge}`}>{r.name}</span>
+                <div className="flex items-center gap-1.5">
+                  {r.isSystemRole && <span className="badge badge-gray">System</span>}
+                  {canEditRole && !r.isSystemRole ? (
+                    <ToggleSwitch
+                      checked={r.status === "active"}
+                      onChange={() => toggleRoleStatus(r)}
+                      label={r.status === "active" ? "Active" : "Inactive"}
+                    />
+                  ) : (
+                    <span className={`badge ${r.status === "active" ? "badge-ok" : "badge-gray"}`}>{r.status}</span>
+                  )}
                 </div>
-                {r.description && <div className="mt-0.5 text-[12px] text-slate">{r.description}</div>}
               </div>
-              <div className="flex flex-shrink-0 gap-1.5">
-                <button className="btn btn-ghost btn-sm" onClick={() => openMatrix(r)}>
-                  Permissions
-                </button>
-                {canEditRole && !r.isSystemRole && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => startEdit(r)}>
-                    Edit
+              <div className="mb-1 text-[15px] font-bold text-ink">{r.name}</div>
+              <div className="mb-2.5 text-[12px] text-slate">
+                {r.description || "No description."}
+                {" · "}
+                {r.userCount} user{r.userCount === 1 ? "" : "s"}
+              </div>
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {moduleTagsFor(r).map((tag) => (
+                  <span key={tag} className="badge badge-ok">
+                    {tag}
+                  </span>
+                ))}
+                {moduleTagsFor(r).length === 0 && <span className="badge badge-gray">No modules granted</span>}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {r.isSystemRole ? (
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => openMatrix(r)}>
+                    👁 View Permissions
+                  </button>
+                ) : (
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => openMatrix(r)}>
+                    ✏️ Edit Permissions
                   </button>
                 )}
                 {canEditRole && !r.isSystemRole && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => toggleRoleStatus(r)}>
-                    {r.status === "active" ? "Deactivate" : "Activate"}
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => startEdit(r)}>
+                    Rename
                   </button>
                 )}
                 {canDeleteRole && !r.isSystemRole && (
-                  <button className="btn btn-danger btn-sm" onClick={() => remove(r)}>
-                    Delete
+                  <button type="button" className="btn btn-danger btn-sm" onClick={() => remove(r)}>
+                    🗑 Delete
                   </button>
                 )}
               </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
+      </div>
 
-        {showForm && (
+      {showForm && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4" onClick={cancelForm}>
           <form
             onSubmit={submit}
             key={editing?.id ?? "new"}
-            className="mt-4 rounded-lg border-[1.5px] border-line bg-cream/50 p-3.5"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-pop animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate">
-              {editing ? `Edit role — ${editing.name}` : "Add new role"}
+            <div className="mb-1 flex items-start justify-between">
+              <div className="font-display text-lg font-bold text-ink">
+                {editing ? "Edit Role" : "Create Role"}
+              </div>
+              <button type="button" className="text-xl leading-none text-muted" onClick={cancelForm} aria-label="Close">
+                ×
+              </button>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <p className="mb-4 text-[13px] text-slate">
+              {editing ? `Update ${editing.name}'s name and description.` : "Custom roles start with no permissions — grant them from the card afterward."}
+            </p>
+            <div className="flex flex-col gap-3">
               <input name="name" className="field" placeholder="Role Name *" defaultValue={editing?.name} required />
               <input
                 name="description"
@@ -252,17 +374,17 @@ export function RolesManager() {
               />
             </div>
             {error && <div className="mt-2 text-xs font-semibold text-danger">{error}</div>}
-            <div className="mt-3 flex gap-2">
-              <button className={`btn btn-primary btn-sm ${busy ? "is-disabled" : ""}`}>
-                {editing ? "Save Changes" : "+ Add Role"}
-              </button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={cancelForm}>
+            <div className="mt-4 flex justify-between">
+              <button type="button" className="btn btn-ghost" onClick={cancelForm}>
                 Cancel
+              </button>
+              <button className={`btn btn-primary ${busy ? "is-disabled" : ""}`}>
+                {busy ? "Saving…" : editing ? "Save Changes" : "Create Role"}
               </button>
             </div>
           </form>
-        )}
-      </div>
+        </div>
+      )}
 
       {managingRole && (
         <div className="card">
@@ -335,6 +457,86 @@ export function RolesManager() {
           )}
         </div>
       )}
+
+      {/* Permissions Matrix — all roles at a glance, read-only summary */}
+      <div className="card">
+        <div className="card-title">🔒 Permissions Matrix — All Roles at a Glance</div>
+        <div className="mb-3 flex flex-wrap items-center gap-4 text-[12px] text-slate">
+          <span>✅ Full access</span>
+          <span>🔶 Conditional / limited</span>
+          <span>✗ No access</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="dt">
+            <thead>
+              <tr>
+                <th>Module / Permission</th>
+                {roles.map((r) => (
+                  <th key={r.id}>
+                    <span className={`badge ${roleColor(r.slug).badge}`}>{r.name}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(MODULE_LABELS).map((mod) => {
+                const modPerms = permissions.filter((p) => p.module === mod);
+                if (modPerms.length === 0) return null;
+                return (
+                  <tr key={mod}>
+                    <td className="font-semibold text-ink">{MODULE_LABELS[mod]}</td>
+                    {roles.map((r) => {
+                      const mySlugs = r.isSystemRole ? new Set(permissions.map((p) => p.slug)) : rolePerms[r.id] ?? new Set<string>();
+                      const have = modPerms.filter((p) => mySlugs.has(p.slug)).length;
+                      const cell =
+                        have === 0 ? (
+                          <span className="text-muted">✗</span>
+                        ) : have === modPerms.length ? (
+                          <span title="Full access">✅</span>
+                        ) : (
+                          <span title="Conditional / limited">🔶</span>
+                        );
+                      return <td key={r.id}>{cell}</td>;
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
+  );
+}
+
+function ToggleSwitch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      className="flex items-center gap-1.5"
+      title={label}
+    >
+      <span
+        className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
+          checked ? "bg-ok" : "bg-line"
+        }`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-[18px]" : "translate-x-1"
+          }`}
+        />
+      </span>
+      <span className={`text-[11px] font-semibold ${checked ? "text-ok" : "text-muted"}`}>{label}</span>
+    </button>
   );
 }

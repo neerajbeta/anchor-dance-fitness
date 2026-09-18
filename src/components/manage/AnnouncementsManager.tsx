@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FormDatePicker } from "@/components/theme/DatePicker";
 
 type Tone = "info" | "warning" | "urgent";
 type Announcement = {
@@ -164,17 +165,17 @@ export function AnnouncementsManager() {
             </button>
           ))}
         </div>
-        <label className="mb-3 block">
+        <div className="mb-3">
           <span className="mb-1 block text-[11px] font-semibold text-slate">
             Auto-close on (optional)
           </span>
-          <input
-            type="date"
+          <FormDatePicker
+            variant="admin"
             name="expiresAt"
-            className="field"
             defaultValue={editing?.expiresAt ? editing.expiresAt.slice(0, 10) : undefined}
+            placeholder="No auto-close"
           />
-        </label>
+        </div>
         {error && <div className="mb-2 text-xs font-semibold text-danger">{error}</div>}
         <div className="flex gap-2">
           <button className={`btn btn-primary btn-sm ${busy ? "is-disabled" : ""}`}>

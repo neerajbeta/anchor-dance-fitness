@@ -8,6 +8,7 @@ import {
   boolean,
   date,
   time,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // ───────────────────────── Enums ─────────────────────────
@@ -125,6 +126,42 @@ export const plans = pgTable("plans", {
   currency: text("currency").notNull().default("SEK"),
   description: text("description"),
   active: boolean("active").notNull().default(true),
+});
+
+// ───────────────────────── App settings (admin "Portal Settings") ─────────────────────────
+// Small key/value store for portal-wide config (studio hourly rate, studio purposes,
+// Book-a-Demo class types, …). Values are JSON-encoded.
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// ───────────────────────── Email templates + delivery log ─────────────────────────
+// One row per template the admin has edited; a missing row means "use the
+// built-in default" (src/lib/email/defaults.ts).
+export const emailTemplates = pgTable("email_templates", {
+  key: text("key").primaryKey(), // "welcome" | "booking_class" | ...
+  subject: text("subject").notNull(),
+  heading: text("heading").notNull(),
+  body: text("body").notNull(), // plain text + {{variables}}, **bold**, "- " lists
+  buttonLabel: text("button_label"),
+  buttonUrl: text("button_url"),
+  enabled: boolean("enabled").notNull().default(true),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const emailLog = pgTable("email_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  templateKey: text("template_key").notNull(),
+  toEmail: text("to_email").notNull(),
+  subject: text("subject").notNull(),
+  status: text("status").notNull(), // "sent" | "failed" | "logged" (no provider configured)
+  error: text("error"),
+  // Stops the same confirmation going out twice (e.g. "booking_class:REG-123").
+  dedupeKey: text("dedupe_key").unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 // ───────────────────────── Coaches / Trainers (P2) ─────────────────────────
@@ -363,7 +400,12 @@ export const registrations = pgTable("registrations", {
   statusTone: text("status_tone").notNull().default("gray"),
   amount: integer("amount").notNull().default(0), // SEK actually charged (after discount)
   discountCode: text("discount_code"), // Discount Master code applied at checkout, if any
+  paymentMethod: paymentMethodEnum("payment_method"), // "stripe" | "swish" — how checkout was paid
+  paymentRef: text("payment_ref"), // Stripe Checkout Session id, or Swish payment reference
+  notes: text("notes"), // customer's own notes at booking, e.g. studio requirements
   eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }), // set for workshop/event bookings only
+  // The class a class booking is for — used to stop the same person booking it twice.
+  classId: uuid("class_id").references((): AnyPgColumn => classes.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

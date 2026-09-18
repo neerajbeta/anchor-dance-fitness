@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { Avatar, SectionHead, toneClass } from "@/components/ui";
+import { CategoryDonutChart } from "@/components/charts/CategoryDonutChart";
+import { LocationBarChart } from "@/components/charts/LocationBarChart";
+import { HorizontalBarChart } from "@/components/charts/HorizontalBarChart";
 import type { Registration } from "@/lib/data";
 
 type Bucket = { label: string; count: number };
@@ -249,12 +252,24 @@ export default function ReportsPage() {
             </div>
           )}
 
-          {/* Breakdowns — 4 features side by side */}
+          {/* Breakdowns — form picked per question: share-of-whole → donut, ranked-across-many → bar */}
           <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <BreakdownCard title="🏆 By Category" data={report.byCategory} />
-            <BreakdownCard title="📍 By Location" data={report.byLocation} />
-            <BreakdownCard title="🎫 By Booking Type" data={report.byType} />
-            <BreakdownCard title="💳 By Plan" data={report.byPlan} />
+            <div className="card">
+              <div className="card-title">🏆 By Category</div>
+              <CategoryDonutChart data={report.byCategory} unitLabel="REGISTRATIONS" />
+            </div>
+            <div className="card">
+              <div className="card-title">📍 By Location</div>
+              <LocationBarChart data={report.byLocation.map((d) => ({ location: d.label, count: d.count }))} />
+            </div>
+            <div className="card">
+              <div className="card-title">🎫 By Booking Type</div>
+              <CategoryDonutChart data={report.byType} unitLabel="BOOKINGS" />
+            </div>
+            <div className="card">
+              <div className="card-title">💳 By Plan</div>
+              <HorizontalBarChart data={report.byPlan} />
+            </div>
           </div>
 
           {/* Detail table — filtered registrations across every type */}
@@ -352,36 +367,3 @@ function Stat({
   );
 }
 
-function BreakdownCard({ title, data }: { title: string; data: Bucket[] }) {
-  const max = useMemo(() => Math.max(1, ...data.map((d) => d.count)), [data]);
-  return (
-    <div className="card">
-      <div className="card-title">{title}</div>
-      {data.length === 0 ? (
-        <div className="rounded-lg border-[1.5px] border-dashed border-line bg-cream/40 py-6 text-center text-[13px] text-muted">
-          No data for this filter.
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2.5">
-          {data.slice(0, 8).map((d) => (
-            <div key={d.label}>
-              <div className="mb-1 flex items-center justify-between text-[13px]">
-                <span className="font-semibold text-ink">{d.label}</span>
-                <span className="font-bold text-brand-600">{d.count}</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-cream-deep">
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${(d.count / max) * 100}%`,
-                    background: "linear-gradient(90deg,#F7942E,#E63E2B)",
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}

@@ -39,9 +39,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (!before) return NextResponse.json({ error: "Not found" }, { status: 404 });
     const b = await req.json();
 
-    const patch: { name?: string; email?: string; roleId?: string; status?: "active" | "inactive" } = {};
+    const patch: {
+      name?: string;
+      email?: string;
+      roleId?: string;
+      status?: "active" | "inactive";
+      phone?: string | null;
+      location?: string | null;
+    } = {};
     if (b.name !== undefined) patch.name = b.name;
     if (b.email !== undefined) patch.email = b.email;
+    if (b.phone !== undefined) patch.phone = b.phone;
+    if (b.location !== undefined) patch.location = b.location;
 
     if (b.roleId !== undefined && b.roleId !== before.roleId) {
       if (params.id === auth.actor.id) {

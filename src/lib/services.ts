@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { and, desc, eq, gt, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, gt, ilike, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   registrations,
@@ -21,7 +21,12 @@ import {
   rolePermissions,
   auditLogs,
   eventMedia,
+  appSettings,
+  emailTemplates,
+  emailLog,
 } from "@/lib/db/schema";
+import { planTotal, type PlanInput } from "@/lib/plans";
+import { decryptSecret, encryptSecret } from "@/lib/secrets";
 
 export class DbNotConfiguredError extends Error {
   constructor() {
@@ -30,6 +35,9 @@ export class DbNotConfiguredError extends Error {
 }
 
 export class ConflictError extends Error {}
+
+/** Signup attempted with an email that already has a sign-in-able account. */
+export class EmailTakenError extends Error {}
 
 /**
  * Creates or refreshes a student user from a Google login. Email is the
@@ -45,15 +53,19 @@ export async function upsertOAuthUser(input: { email: string; name: string }) {
       target: users.email,
       set: { name: input.name },
     })
-    .returning();
+    // xmax = 0 only on a freshly inserted row — tells a first Google sign-up
+    // (which gets the welcome email) apart from a returning user.
+    .returning({ ...getTableColumns(users), created: sql<boolean>`(xmax = 0)` });
   return row;
 }
 
 /**
- * Registers (or refreshes) a student profile from the "Your Details" signup
- * form. Email is the natural key, same as the Google OAuth path. Signup
- * logs the student straight in regardless; the password (bcrypt-hashed,
- * same as admin auth) lets them come back and sign in with email+password.
+ * Registers a student profile from the "Your Details" signup form; the route
+ * then logs them straight in. Email is the natural key. An existing account
+ * that can already sign in (has a password, or is an admin-panel account) is
+ * never overwritten — that would let anyone reset someone else's password —
+ * so it throws EmailTakenError. A password-less student profile (created via
+ * Google or Book on Behalf) can be claimed by completing signup.
  */
 export type RegisterStudentInput = {
   name: string;
@@ -69,6 +81,13 @@ export type RegisterStudentInput = {
 export async function registerStudent(input: RegisterStudentInput) {
   const d = requireDb();
   const email = input.email.trim().toLowerCase();
+  const [existing] = await d
+    .select({ role: users.role, passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.email, email));
+  if (existing && (existing.role !== "student" || existing.passwordHash)) {
+    throw new EmailTakenError();
+  }
   const passwordHash = await bcrypt.hash(input.password, 10);
   const values = {
     name: input.name.trim(),
@@ -160,7 +179,12 @@ export type RegistrationInput = {
   discountCode?: string;
   classId?: string; // used to resolve a scope="class" discount
   eventId?: string; // used to resolve a scope="event"/"workshop" discount
+  /** Free-text notes from the customer (e.g. studio requirements). */
+  notes?: string | null;
 };
+
+/** Longest customer note stored with a booking. */
+export const BOOKING_NOTES_MAX = 500;
 
 export type CreateRegistrationResult = Awaited<ReturnType<typeof insertRegistration>>;
 
@@ -190,6 +214,9 @@ async function insertRegistration(input: RegistrationInput, amount: number, appl
     amount,
     discountCode: appliedCode,
     eventId: input.eventId ?? null,
+    classId: input.classId || null,
+    // Trimmed and capped here, whatever the caller sent.
+    notes: String(input.notes ?? "").trim().slice(0, BOOKING_NOTES_MAX) || null,
   } as const;
 
   await d.insert(registrations).values(row);
@@ -240,8 +267,271 @@ export async function createRegistration(input: RegistrationInput) {
   return insertRegistration(input, amount, appliedCode);
 }
 
+export async function getRegistrationById(id: string) {
+  const [row] = await requireDb().select().from(registrations).where(eq(registrations.id, id));
+  return row ?? null;
+}
+
+/** Looks a booking up by the gateway's own id (Stripe session / Swish instruction id). */
+export async function getRegistrationByPaymentRef(ref: string) {
+  const [row] = await requireDb().select().from(registrations).where(eq(registrations.paymentRef, ref));
+  return row ?? null;
+}
+
+/** Records which gateway a booking is being paid through, before we send the user to it. */
+export async function attachPaymentRef(id: string, method: "stripe" | "swish", ref: string) {
+  await requireDb()
+    .update(registrations)
+    .set({ paymentMethod: method, paymentRef: ref })
+    .where(eq(registrations.id, id));
+}
+
+export class PriceError extends Error {}
+
+/**
+ * The price (SEK, before discount) of a self-service booking, worked out from
+ * the database — never taken from the browser, since this is what the customer
+ * is charged. Throws PriceError when the booking doesn't match anything sellable.
+ *
+ *  - Studio Hire   → hours (from the "HH:MM–HH:MM" in detail) × studio hourly rate
+ *  - Workshop/Event → the event's price
+ *  - Class          → the chosen plan's total at that class's monthly price
+ *  - Plan only      → the chosen plan's total
+ */
+export async function priceBooking(input: {
+  type: string;
+  detail?: string | null;
+  plan?: string | null;
+  classId?: string | null;
+  eventId?: string | null;
+}): Promise<number> {
+  const d = requireDb();
+
+  if (input.type === "studio") {
+    const m = /(\d{2}):(\d{2})\s*[–-]\s*(\d{2}):(\d{2})/.exec(input.detail ?? "");
+    if (!m) throw new PriceError("Choose a studio start time.");
+    const start = Number(m[1]) * 60 + Number(m[2]);
+    let end = Number(m[3]) * 60 + Number(m[4]);
+    if (end <= start) end += 24 * 60; // runs past midnight
+    const { studioHourlyRate } = await getPortalSettings();
+    return Math.round(((end - start) / 60) * studioHourlyRate);
+  }
+
+  if (input.type === "workshop" || input.type === "event") {
+    if (!input.eventId) throw new PriceError("This booking isn't linked to a workshop or event.");
+    const [ev] = await d.select({ price: events.price }).from(events).where(eq(events.id, input.eventId));
+    if (!ev) throw new PriceError("That workshop or event is no longer available.");
+    return ev.price;
+  }
+
+  // Class, or a plan bought on its own.
+  const [planRow] = input.plan
+    ? await d.select().from(plans).where(and(eq(plans.name, input.plan), eq(plans.active, true)))
+    : [];
+  if (!planRow) throw new PriceError("Please choose a plan.");
+  let classPrice: number | null = null;
+  if (input.classId) {
+    const [cls] = await d.select({ price: classes.price }).from(classes).where(eq(classes.id, input.classId));
+    if (!cls) throw new PriceError("That class is no longer available.");
+    classPrice = cls.price;
+  }
+  return planTotal(planRow, classPrice);
+}
+
+/** Status shown on a booking whose payment was abandoned, declined or expired. */
+export const PAYMENT_CANCELLED_STATUS = "Payment Cancelled";
+
+/** The status a booking normally carries once it's paid (what checkout originally set). */
+function paidStatusFor(row: { type: string; detail: string | null }) {
+  if (row.type === "class") {
+    // Plan-only purchases are recorded as "<Plan> Plan" and are active immediately.
+    return /\bPlan$/.test(row.detail ?? "")
+      ? { status: "Active", statusTone: "ok" }
+      : { status: "Pending Batch", statusTone: "warn" };
+  }
+  return { status: "Confirmed", statusTone: "ok" };
+}
+
+/**
+ * Flips a booking to paid once the gateway has confirmed it. Only ever called
+ * after a server-side check with Stripe/Swish — never on the client's say-so.
+ * A payment first marked cancelled but then completed anyway gets its normal
+ * status back.
+ */
+export async function markRegistrationPaid(id: string, method: "stripe" | "swish", ref: string) {
+  const current = await getRegistrationById(id);
+  if (!current) return null;
+  const restore = current.status === PAYMENT_CANCELLED_STATUS ? paidStatusFor(current) : {};
+  const [row] = await requireDb()
+    .update(registrations)
+    .set({ paid: "paid", paymentMethod: method, paymentRef: ref, ...restore })
+    .where(eq(registrations.id, id))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Marks an unpaid booking as cancelled so admins don't mistake it for a real
+ * one and a studio slot it was holding is released. Never touches a paid booking.
+ */
+export async function markRegistrationPaymentCancelled(id: string) {
+  await requireDb()
+    .update(registrations)
+    .set({ status: PAYMENT_CANCELLED_STATUS, statusTone: "danger" })
+    .where(and(eq(registrations.id, id), sql`${registrations.paid} <> 'paid'`));
+}
+
+/** Last YYYY-MM-DD in a period like "2026-09-20 – 2026-12-20" (class bookings). */
+function periodEnd(period: string | null) {
+  const dates = (period ?? "").match(/d{4}-d{2}-d{2}/g);
+  return dates ? dates[dates.length - 1] : null;
+}
+
+export class DuplicateBookingError extends Error {
+  constructor(
+    message: string,
+    readonly existingId: string
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * The same person may hold only one live booking of a given class, workshop or
+ * event. A booking stops counting once it's cancelled, once an abandoned
+ * checkout is past PAYMENT_HOLD_MS, or (for classes) once its dates are over —
+ * so a student can re-book a class for a new term. Studio hire and plan-only
+ * purchases aren't limited.
+ */
+export async function findActiveDuplicate(input: {
+  email: string;
+  type: string;
+  classId?: string | null;
+  eventId?: string | null;
+  detail?: string | null;
+}) {
+  const email = input.email.trim().toLowerCase();
+  const isEvent = input.type === "workshop" || input.type === "event";
+  const isClass = input.type === "class" && Boolean(input.classId);
+  if (!isEvent && !isClass) return null;
+  if (isEvent && !input.eventId) return null;
+
+  const holdSince = new Date(Date.now() - PAYMENT_HOLD_MS);
+  const target = isEvent
+    ? eq(registrations.eventId, input.eventId!)
+    : or(
+        eq(registrations.classId, input.classId!),
+        // Class bookings made before class_id existed: same class text.
+        and(isNull(registrations.classId), eq(registrations.detail, input.detail ?? ""))
+      );
+  const rows = await requireDb()
+    .select()
+    .from(registrations)
+    .where(
+      and(
+        eq(registrations.email, email),
+        eq(registrations.type, input.type as "class" | "workshop" | "event"),
+        target,
+        sql`${registrations.status} <> ${PAYMENT_CANCELLED_STATUS}`,
+        // An unpaid online checkout only counts while it could still be paid.
+        or(
+          sql`${registrations.paid} <> 'pending'`,
+          isNull(registrations.paymentMethod),
+          gt(registrations.createdAt, holdSince)
+        )
+      )
+    )
+    .orderBy(desc(registrations.createdAt));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const live = rows.find((r) => {
+    if (r.type !== "class") return true;
+    const end = periodEnd(r.period);
+    return !end || end >= today;
+  });
+  return live ?? null;
+}
+
+/** Throws DuplicateBookingError with a customer-friendly message if one exists. */
+export async function assertNotDuplicateBooking(input: Parameters<typeof findActiveDuplicate>[0]) {
+  const dup = await findActiveDuplicate(input);
+  if (!dup) return;
+  const what = dup.type === "class" ? "class" : dup.type;
+  const unpaid = dup.paid === "pending" && dup.paymentMethod;
+  throw new DuplicateBookingError(
+    unpaid
+      ? `A payment for this ${what} is already in progress (${dup.id}). Finish it, or try again in about 30 minutes.`
+      : `You've already booked this ${what} (${dup.id}). You can see it in My Portal.`,
+    dup.id
+  );
+}
+
+/** Class and event ids a student currently holds, so booking pages can mark them. */
+export async function getActiveBookedIds(email: string) {
+  const holdSince = new Date(Date.now() - PAYMENT_HOLD_MS);
+  const rows = await requireDb()
+    .select({
+      type: registrations.type,
+      classId: registrations.classId,
+      eventId: registrations.eventId,
+      period: registrations.period,
+    })
+    .from(registrations)
+    .where(
+      and(
+        eq(registrations.email, email.trim().toLowerCase()),
+        sql`${registrations.status} <> ${PAYMENT_CANCELLED_STATUS}`,
+        or(
+          sql`${registrations.paid} <> 'pending'`,
+          isNull(registrations.paymentMethod),
+          gt(registrations.createdAt, holdSince)
+        )
+      )
+    );
+  const today = new Date().toISOString().slice(0, 10);
+  const classIds = new Set<string>();
+  const eventIds = new Set<string>();
+  for (const r of rows) {
+    if (r.eventId) eventIds.add(r.eventId);
+    if (r.type === "class" && r.classId) {
+      const end = periodEnd(r.period);
+      if (!end || end >= today) classIds.add(r.classId);
+    }
+  }
+  return { classIds: Array.from(classIds), eventIds: Array.from(eventIds) };
+}
+
 export async function listRegistrations() {
   return requireDb().select().from(registrations).orderBy(desc(registrations.createdAt));
+}
+
+/**
+ * Everything the student portal shows for one signed-in student: their profile
+ * and their bookings. Bookings are linked to a student by email.
+ */
+export async function getStudentPortalData(email: string) {
+  const d = requireDb();
+  const normEmail = email.trim().toLowerCase();
+  const [profileRows, bookingRows] = await Promise.all([
+    d
+      .select({
+        name: users.name,
+        email: users.email,
+        phone: users.phone,
+        city: users.city,
+        country: users.country,
+        location: users.location,
+        flag: users.flag,
+      })
+      .from(users)
+      .where(eq(users.email, normEmail)),
+    d
+      .select()
+      .from(registrations)
+      .where(eq(registrations.email, normEmail))
+      .orderBy(desc(registrations.createdAt)),
+  ]);
+  return { profile: profileRows[0] ?? null, registrations: bookingRows };
 }
 
 // ───────────── Events ─────────────
@@ -427,6 +717,73 @@ export async function createStudioBlock(input: StudioBlockInput) {
 
 export async function listStudioBlocks() {
   return requireDb().select().from(studioBlocks).orderBy(studioBlocks.date);
+}
+
+/**
+ * Public studio availability for one location + day: admin-blocked slots and
+ * existing studio bookings, as plain time ranges (no names or emails).
+ * Studio bookings store their time in `detail` ("… 11:00–13:00 · Purpose") and
+ * their day in `period`, either as YYYY-MM-DD or the booking page's en-GB label.
+ */
+/**
+ * How long an unpaid self-service booking counts as "in progress" — it keeps a
+ * studio slot, and stops the same person starting a second checkout for the
+ * same class/workshop/event. Stripe Checkout pages expire after 30 minutes
+ * (see stripe.ts) and Swish requests after a few, so nothing older can still
+ * turn into a payment.
+ */
+export const PAYMENT_HOLD_MS = 31 * 60 * 1000;
+export const STUDIO_PAYMENT_HOLD_MS = PAYMENT_HOLD_MS;
+
+export async function getStudioTakenSlots(location: string, date: string) {
+  const d = requireDb();
+  const [blockRows, bookingRows] = await Promise.all([
+    d
+      .select({
+        date: studioBlocks.date,
+        endDate: studioBlocks.endDate,
+        startTime: studioBlocks.startTime,
+        endTime: studioBlocks.endTime,
+      })
+      .from(studioBlocks)
+      .where(eq(studioBlocks.location, location)),
+    d
+      .select({
+        detail: registrations.detail,
+        period: registrations.period,
+        paid: registrations.paid,
+        status: registrations.status,
+        createdAt: registrations.createdAt,
+      })
+      .from(registrations)
+      .where(and(eq(registrations.type, "studio"), eq(registrations.location, location))),
+  ]);
+
+  const hm = (t: string) => t.slice(0, 5);
+  const label = new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  const ranges: { start: string; end: string; reason: "Blocked" | "Booked" }[] = [];
+  for (const b of blockRows) {
+    if (b.date <= date && (b.endDate ?? b.date) >= date) {
+      ranges.push({ start: hm(b.startTime), end: hm(b.endTime), reason: "Blocked" });
+    }
+  }
+  const holdSince = Date.now() - STUDIO_PAYMENT_HOLD_MS;
+  for (const r of bookingRows) {
+    if (r.period !== date && r.period !== label) continue;
+    // A slot stays taken once paid. While a payment is in progress it's held
+    // briefly, so nobody else grabs it; an abandoned payment releases it.
+    if (r.status === PAYMENT_CANCELLED_STATUS) continue;
+    if (r.paid === "pending" && (!r.createdAt || r.createdAt.getTime() < holdSince)) continue;
+    const m = r.detail?.match(/(\d{2}:\d{2})\s*[–-]\s*(\d{2}:\d{2})/);
+    if (m) ranges.push({ start: m[1], end: m[2], reason: "Booked" });
+  }
+  return ranges;
 }
 
 export async function deleteStudioBlock(id: string) {
@@ -716,6 +1073,8 @@ export type AdminUserInput = {
   password?: string;
   roleId: string;
   status?: "active" | "inactive";
+  phone?: string | null;
+  location?: string | null;
 };
 
 export type ListAdminUsersOpts = {
@@ -762,6 +1121,8 @@ export async function listAdminUsers(opts: ListAdminUsersOpts = {}) {
         status: users.status,
         roleId: users.roleId,
         roleName: roles.name,
+        phone: users.phone,
+        location: users.location,
         createdAt: users.createdAt,
         lastLoginAt: users.lastLoginAt,
       })
@@ -785,6 +1146,8 @@ export async function getAdminUserById(id: string) {
       status: users.status,
       roleId: users.roleId,
       roleName: roles.name,
+      phone: users.phone,
+      location: users.location,
       createdAt: users.createdAt,
       lastLoginAt: users.lastLoginAt,
     })
@@ -801,6 +1164,8 @@ const ADMIN_USER_SAFE_COLUMNS = {
   email: users.email,
   status: users.status,
   roleId: users.roleId,
+  phone: users.phone,
+  location: users.location,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
   lastLoginAt: users.lastLoginAt,
@@ -821,6 +1186,8 @@ export async function createAdminUser(input: AdminUserInput) {
       role: "admin",
       roleId: input.roleId,
       status: input.status ?? "active",
+      phone: input.phone?.trim() || null,
+      location: input.location || null,
     })
     .returning(ADMIN_USER_SAFE_COLUMNS);
   return row;
@@ -828,7 +1195,14 @@ export async function createAdminUser(input: AdminUserInput) {
 
 export async function updateAdminUser(
   id: string,
-  patch: { name?: string; email?: string; roleId?: string; status?: "active" | "inactive" }
+  patch: {
+    name?: string;
+    email?: string;
+    roleId?: string;
+    status?: "active" | "inactive";
+    phone?: string | null;
+    location?: string | null;
+  }
 ) {
   const d = requireDb();
   if (patch.email) {
@@ -846,11 +1220,39 @@ export async function updateAdminUser(
       ...(patch.email !== undefined ? { email: patch.email.trim().toLowerCase() } : {}),
       ...(patch.roleId !== undefined ? { roleId: patch.roleId } : {}),
       ...(patch.status !== undefined ? { status: patch.status } : {}),
+      ...(patch.phone !== undefined ? { phone: patch.phone?.trim() || null } : {}),
+      ...(patch.location !== undefined ? { location: patch.location || null } : {}),
       updatedAt: new Date(),
     })
     .where(eq(users.id, id))
     .returning(ADMIN_USER_SAFE_COLUMNS);
   return row ?? null;
+}
+
+// Header stat cards for the Users screen — one lightweight aggregate query.
+export async function getAdminUserStats() {
+  const d = requireDb();
+  const [row] = await d.execute<{
+    total: number;
+    active: number;
+    inactive: number;
+    admins_managers: number;
+  }>(sql`
+    select
+      count(*)::int as total,
+      count(*) filter (where u.status = 'active')::int as active,
+      count(*) filter (where u.status = 'inactive')::int as inactive,
+      count(*) filter (where r.slug in ('super-admin','admin','manager'))::int as admins_managers
+    from users u
+    left join roles r on r.id = u.role_id
+    where u.role_id is not null
+  `);
+  return {
+    total: row?.total ?? 0,
+    active: row?.active ?? 0,
+    inactive: row?.inactive ?? 0,
+    adminsAndManagers: row?.admins_managers ?? 0,
+  };
 }
 
 export async function deleteAdminUser(id: string) {
@@ -1160,10 +1562,200 @@ export async function getCategoryReport(opts: { month?: string; location?: strin
     .orderBy(sql`count(*) desc`);
 }
 
-// ───────────── Catalog ─────────────
+// ───────────── Plans (admin-managed pricing) ─────────────
+/** Active plans only — what students and Book on Behalf can pick. */
 export async function listPlans() {
   return requireDb().select().from(plans).where(eq(plans.active, true));
 }
+
+/** Every plan, including inactive ones — for the admin Plans screen. */
+export async function listAllPlans() {
+  return requireDb().select().from(plans);
+}
+
+const planCode = (name: string) =>
+  name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "plan";
+
+/** Returns null when a plan with the same code (derived from the name) already exists. */
+export async function createPlan(input: Pick<PlanInput, "name" | "interval" | "price"> & Partial<PlanInput>) {
+  const [row] = await requireDb()
+    .insert(plans)
+    .values({
+      code: planCode(input.name),
+      name: input.name.trim(),
+      interval: input.interval,
+      price: input.price,
+      description: input.description ?? null,
+      active: input.active ?? true,
+    })
+    .onConflictDoNothing({ target: plans.code })
+    .returning();
+  return row ?? null;
+}
+
+export async function updatePlan(id: string, patch: Partial<PlanInput>) {
+  const d = requireDb();
+  if (Object.keys(patch).length === 0) {
+    const [row] = await d.select().from(plans).where(eq(plans.id, id));
+    return row ?? null;
+  }
+  const [row] = await d.update(plans).set(patch).where(eq(plans.id, id)).returning();
+  return row ?? null;
+}
+
+export async function deletePlan(id: string) {
+  await requireDb().delete(plans).where(eq(plans.id, id));
+}
+
+// ───────────── Portal Settings (admin-managed key/value config) ─────────────
+export type PortalSettings = {
+  studioHourlyRate: number;
+  studioPurposes: string[];
+  demoClassTypes: string[];
+};
+
+// Used until an admin saves a value on Portal Settings.
+const PORTAL_SETTING_DEFAULTS: PortalSettings = {
+  studioHourlyRate: 600,
+  studioPurposes: [
+    "Personal Practice",
+    "Group Rehearsal",
+    "Private Rehearsal",
+    "Performance Practice",
+    "Photo / Video Shoot",
+  ],
+  demoClassTypes: ["Group Class", "Private Class", "Trial Class"],
+};
+
+const SETTING_KEYS: Record<keyof PortalSettings, string> = {
+  studioHourlyRate: "studio.hourly_rate",
+  studioPurposes: "studio.purposes",
+  demoClassTypes: "demo.class_types",
+};
+
+export async function getPortalSettings(): Promise<PortalSettings> {
+  const rows = await requireDb().select().from(appSettings);
+  const byKey = new Map(rows.map((r) => [r.key, r.value]));
+  const read = <K extends keyof PortalSettings>(k: K): PortalSettings[K] => {
+    const raw = byKey.get(SETTING_KEYS[k]);
+    if (raw === undefined) return PORTAL_SETTING_DEFAULTS[k];
+    try {
+      return JSON.parse(raw) as PortalSettings[K];
+    } catch {
+      return PORTAL_SETTING_DEFAULTS[k];
+    }
+  };
+  return {
+    studioHourlyRate: read("studioHourlyRate"),
+    studioPurposes: read("studioPurposes"),
+    demoClassTypes: read("demoClassTypes"),
+  };
+}
+
+export async function updatePortalSettings(patch: Partial<PortalSettings>) {
+  const d = requireDb();
+  for (const k of Object.keys(patch) as (keyof PortalSettings)[]) {
+    if (patch[k] === undefined) continue;
+    const value = JSON.stringify(patch[k]);
+    await d
+      .insert(appSettings)
+      .values({ key: SETTING_KEYS[k], value, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date() } });
+  }
+  return getPortalSettings();
+}
+
+// ───────────── Swish certificate (uploaded from Portal Settings) ─────────────
+// Stored in app_settings under keys that are never part of PortalSettings, so the
+// public /api/settings GET can't reach them. Certificate, key and passphrase are
+// encrypted; only the non-secret metadata is stored in plain JSON.
+
+export type SwishCertificateMeta = {
+  subject: string; // certificate CN — Swish puts the merchant number here
+  issuer: string;
+  validFrom: string; // ISO
+  validTo: string; // ISO
+  fingerprint: string; // SHA-256
+  uploadedAt: string; // ISO
+  uploadedBy: string;
+};
+
+const SWISH_CERT_KEYS = {
+  cert: "swish.cert",
+  key: "swish.key",
+  passphrase: "swish.key_pass",
+  meta: "swish.cert_meta",
+} as const;
+
+export async function getSwishCertificateMeta(): Promise<SwishCertificateMeta | null> {
+  const [row] = await requireDb().select().from(appSettings).where(eq(appSettings.key, SWISH_CERT_KEYS.meta));
+  if (!row) return null;
+  try {
+    return JSON.parse(row.value) as SwishCertificateMeta;
+  } catch {
+    return null;
+  }
+}
+
+/** Decrypted certificate + key for the Swish client, or null when none has been uploaded. */
+export async function getSwishCertificate(): Promise<{ cert: string; key: string; passphrase: string | null } | null> {
+
+  const rows = await requireDb()
+    .select()
+    .from(appSettings)
+    .where(or(eq(appSettings.key, SWISH_CERT_KEYS.cert), eq(appSettings.key, SWISH_CERT_KEYS.key), eq(appSettings.key, SWISH_CERT_KEYS.passphrase)));
+  const byKey = new Map(rows.map((r) => [r.key, r.value]));
+  const cert = byKey.get(SWISH_CERT_KEYS.cert);
+  const key = byKey.get(SWISH_CERT_KEYS.key);
+  if (!cert || !key) return null;
+  const pass = byKey.get(SWISH_CERT_KEYS.passphrase);
+  return {
+    cert: decryptSecret(cert),
+    key: decryptSecret(key),
+    passphrase: pass ? decryptSecret(pass) : null,
+  };
+}
+
+export async function saveSwishCertificate(input: {
+  cert: string;
+  key: string;
+  passphrase: string | null;
+  meta: SwishCertificateMeta;
+}) {
+
+  const now = new Date();
+  const values = [
+    { key: SWISH_CERT_KEYS.cert, value: encryptSecret(input.cert) },
+    { key: SWISH_CERT_KEYS.key, value: encryptSecret(input.key) },
+    { key: SWISH_CERT_KEYS.meta, value: JSON.stringify(input.meta) },
+    ...(input.passphrase ? [{ key: SWISH_CERT_KEYS.passphrase, value: encryptSecret(input.passphrase) }] : []),
+  ];
+  await requireDb().transaction(async (tx) => {
+    for (const v of values) {
+      await tx
+        .insert(appSettings)
+        .values({ ...v, updatedAt: now })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value: v.value, updatedAt: now } });
+    }
+    // A new key without a passphrase must not inherit the old one's.
+    if (!input.passphrase) await tx.delete(appSettings).where(eq(appSettings.key, SWISH_CERT_KEYS.passphrase));
+  });
+}
+
+export async function deleteSwishCertificate() {
+  await requireDb()
+    .delete(appSettings)
+    .where(
+      or(
+        eq(appSettings.key, SWISH_CERT_KEYS.cert),
+        eq(appSettings.key, SWISH_CERT_KEYS.key),
+        eq(appSettings.key, SWISH_CERT_KEYS.passphrase),
+        eq(appSettings.key, SWISH_CERT_KEYS.meta),
+      ),
+    );
+}
+
+// ───────────── Catalog ─────────────
 export async function listCoaches() {
   return requireDb().select().from(coaches).where(eq(coaches.active, true));
 }
@@ -1241,4 +1833,111 @@ export async function listUnconvertedSignups() {
       )
     )
     .orderBy(desc(users.createdAt));
+}
+
+// ───────────── Email templates + delivery log ─────────────
+
+export type EmailTemplateRow = typeof emailTemplates.$inferSelect;
+
+/** Admin-edited templates only — keys without a row use the built-in default. */
+export async function listEmailTemplateOverrides() {
+  return requireDb().select().from(emailTemplates);
+}
+
+export async function getEmailTemplateOverride(key: string) {
+  const [row] = await requireDb().select().from(emailTemplates).where(eq(emailTemplates.key, key));
+  return row ?? null;
+}
+
+export async function saveEmailTemplate(input: {
+  key: string;
+  subject: string;
+  heading: string;
+  body: string;
+  buttonLabel: string | null;
+  buttonUrl: string | null;
+  enabled: boolean;
+  updatedBy: string;
+}) {
+  const values = { ...input, updatedAt: new Date() };
+  const [row] = await requireDb()
+    .insert(emailTemplates)
+    .values(values)
+    .onConflictDoUpdate({ target: emailTemplates.key, set: values })
+    .returning();
+  return row;
+}
+
+/** Drops the admin's edits so the built-in default is used again. */
+export async function resetEmailTemplate(key: string) {
+  await requireDb().delete(emailTemplates).where(eq(emailTemplates.key, key));
+}
+
+/**
+ * Reserves a send in the log. With a dedupeKey, returns null when that email
+ * was already sent (or is being sent right now) — so a booking confirmed by
+ * both the Swish callback and the result page is only emailed once.
+ */
+export async function claimEmailLog(entry: {
+  templateKey: string;
+  toEmail: string;
+  subject: string;
+  dedupeKey?: string | null;
+}) {
+  const [row] = await requireDb()
+    .insert(emailLog)
+    .values({ ...entry, dedupeKey: entry.dedupeKey ?? null, status: "sending" })
+    .onConflictDoNothing({ target: emailLog.dedupeKey })
+    .returning({ id: emailLog.id });
+  return row ?? null;
+}
+
+/** A failed send frees its dedupe key so the next trigger can try again. */
+export async function finishEmailLog(id: string, status: "sent" | "failed" | "logged", error?: string | null) {
+  await requireDb()
+    .update(emailLog)
+    .set(status === "failed" ? { status, error: error ?? null, dedupeKey: null } : { status, error: null })
+    .where(eq(emailLog.id, id));
+}
+
+export async function listEmailLog(limit = 30) {
+  return requireDb().select().from(emailLog).orderBy(desc(emailLog.createdAt)).limit(limit);
+}
+
+const ADMIN_EMAIL_RECIPIENTS_KEY = "email_admin_recipients";
+
+/** Addresses that get the "new booking" email: the admin panel's list, else EMAIL_ADMIN_TO. */
+export async function getAdminEmailRecipients(): Promise<{ emails: string[]; source: "settings" | "env" | "none" }> {
+  const [row] = await requireDb()
+    .select()
+    .from(appSettings)
+    .where(eq(appSettings.key, ADMIN_EMAIL_RECIPIENTS_KEY));
+  const parse = (v: string) =>
+    v
+      .split(/[,;\s]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+  if (row && parse(row.value).length) return { emails: parse(row.value), source: "settings" };
+  const env = parse(process.env.EMAIL_ADMIN_TO ?? "");
+  return env.length ? { emails: env, source: "env" } : { emails: [], source: "none" };
+}
+
+export async function setAdminEmailRecipients(emails: string[]) {
+  if (!emails.length) {
+    await requireDb().delete(appSettings).where(eq(appSettings.key, ADMIN_EMAIL_RECIPIENTS_KEY));
+    return;
+  }
+  const value = emails.join(", ");
+  await requireDb()
+    .insert(appSettings)
+    .values({ key: ADMIN_EMAIL_RECIPIENTS_KEY, value })
+    .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date() } });
+}
+
+export async function getUserPhone(email: string) {
+  const [row] = await requireDb()
+    .select({ phone: users.phone })
+    .from(users)
+    .where(eq(users.email, email.trim().toLowerCase()));
+  return row?.phone ?? null;
 }

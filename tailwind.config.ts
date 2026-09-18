@@ -1,6 +1,27 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * A CSS-variable colour that still supports Tailwind's opacity modifiers.
+ * `bg-accent` → var(--accent); `bg-accent/10` → the same colour at 10%, mixed
+ * with transparent (works for both light and dark values of the variable).
+ */
+function themeVar(name: string): string {
+  const color = ({ opacityValue }: { opacityValue?: string }) =>
+    opacityValue === undefined || opacityValue === "1"
+      ? `var(${name})`
+      : `color-mix(in srgb, var(${name}) calc(${opacityValue} * 100%), transparent)`;
+  // Tailwind accepts colour functions at runtime; its Config type only lists strings.
+  return color as unknown as string;
+}
+
 const config: Config = {
+  // `dark:` styles apply under html.dark — except on and inside the light cards
+  // dark mode uses (see "LIGHT CARDS" in globals.css), which keep their
+  // light-mode colours so badges and chips stay readable on the cream surface.
+  darkMode: [
+    "variant",
+    "&:is(.dark *):not(:is(.surface-card, .surface-raised, .bg-surface, .bg-surface\\/90), :is(.surface-card, .surface-raised, .bg-surface, .bg-surface\\/90) *)",
+  ],
   content: [
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -40,10 +61,40 @@ const config: Config = {
         danger: "#DC4A3D",
         info: "#3B82C4",
         grape: "#8B5CF6",
+
+        // ── Dance & Fitness themed tokens (CSS-variable backed, light + dark) ──
+        // Wrapped in themeVar() so opacity modifiers (bg-accent/10, border-hairline/50…)
+        // work — a bare "var(--x)" silently generates no CSS for them.
+        canvas: themeVar("--canvas"),
+        surface: {
+          DEFAULT: themeVar("--surface"),
+          glass: themeVar("--surface-glass"),
+          raised: themeVar("--surface-elevated"),
+          muted: themeVar("--surface-muted"),
+        },
+        hairline: {
+          DEFAULT: themeVar("--border"),
+          strong: themeVar("--border-strong"),
+        },
+        copy: {
+          DEFAULT: themeVar("--text-primary"),
+          dim: themeVar("--text-secondary"),
+        },
+        chrome: {
+          DEFAULT: themeVar("--chrome"),
+          deep: themeVar("--chrome-deep"),
+        },
+        accent: {
+          DEFAULT: themeVar("--accent"),
+          dark: themeVar("--accent-dark"),
+          warm: themeVar("--accent-warm"),
+          mid: themeVar("--accent-mid"),
+        },
       },
       fontFamily: {
         sans: ["var(--font-sans)", "Inter", "Segoe UI", "system-ui", "sans-serif"],
         display: ["var(--font-display)", "Poppins", "Inter", "sans-serif"],
+        oswald: ["var(--font-oswald)", "Oswald", "Impact", "sans-serif"],
       },
       borderRadius: {
         xl: "14px",
@@ -53,6 +104,10 @@ const config: Config = {
         card: "0 2px 14px rgba(33,26,22,0.08)",
         pop: "0 18px 50px rgba(33,26,22,0.20)",
         glow: "0 8px 26px rgba(239,91,43,0.30)",
+        "glow-accent": "0 12px 40px rgba(235,57,54,0.28)",
+        soft: "var(--shadow-md)",
+        "soft-sm": "var(--shadow-sm)",
+        "soft-lg": "var(--shadow-lg)",
       },
       backgroundImage: {
         brand: "linear-gradient(135deg, #F7942E 0%, #EF5B2B 52%, #E63E2B 100%)",

@@ -6,6 +6,7 @@ import { AdminShell } from "@/components/AdminShell";
 import { SectionHead, toneClass } from "@/components/ui";
 import { type EventItem } from "@/lib/data";
 import { LocationSelect } from "@/components/LocationSelect";
+import { DatePicker } from "@/components/theme/DatePicker";
 
 // Full 24h, 30-min steps: 00:00 → 23:30
 const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => {
@@ -29,6 +30,8 @@ export function EventsClient({
   const [error, setError] = useState<string | null>(null);
   const [startT, setStartT] = useState("");
   const [endT, setEndT] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [editing, setEditing] = useState<EventItem | null>(null);
   const [typeFilter, setTypeFilter] = useState<"all" | "workshop" | "event">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "upcoming" | "past">("all");
@@ -51,6 +54,8 @@ export function EventsClient({
     setLocation("");
     setStartT("");
     setEndT("");
+    setStartDate("");
+    setEndDate("");
     setError(null);
     setModal(true);
   }
@@ -62,6 +67,8 @@ export function EventsClient({
     setLocation(ev.location);
     setStartT(ev.startTime ?? "");
     setEndT(ev.endTime ?? "");
+    setStartDate(ev.eventDate ?? "");
+    setEndDate(ev.endDate ?? "");
     setError(null);
     setModal(true);
   }
@@ -176,15 +183,22 @@ export function EventsClient({
           onChange={(v) => setStatusFilter(v as typeof statusFilter)}
         />
         <div className="mx-1 h-6 w-px bg-line" />
-        <FilterGroup
-          label="Location:"
-          opts={[
-            { value: "all", label: "All" },
-            ...locationOptions.map((loc) => ({ value: loc, label: loc })),
-          ]}
-          active={locationFilter}
-          onChange={setLocationFilter}
-        />
+        {/* A dropdown rather than chips — the location list grows with every studio added. */}
+        <label className="flex items-center gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-muted">Location:</span>
+          <select
+            className="field h-9 w-auto min-w-[180px] py-1.5"
+            value={locationFilter}
+            onChange={(e) => setLocationFilter(e.target.value)}
+          >
+            <option value="all">🌍 All locations</option>
+            {locationOptions.map((loc) => (
+              <option key={loc} value={loc}>
+                {loc}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -279,31 +293,30 @@ export function EventsClient({
               </div>
               <div>
                 <label className="field-label">Start Date *</label>
-                <input
+                <DatePicker
+                  variant="admin"
                   name="startDate"
-                  className="field"
-                  type="date"
-                  defaultValue={editing?.eventDate}
                   required
+                  value={startDate}
+                  onChange={(v) => {
+                    setStartDate(v);
+                    // Keep the range valid: an end date before the new start is cleared.
+                    if (endDate && v && endDate < v) setEndDate("");
+                  }}
+                  placeholder="Select start date"
                 />
               </div>
               <div>
                 <label className="field-label">End Date *</label>
-                <input
+                <DatePicker
+                  variant="admin"
                   name="endDate"
-                  className="field"
-                  type="date"
-                  defaultValue={editing?.endDate}
                   required
-                />
-              </div>
-              <div>
-                <label className="field-label">Instructor *</label>
-                <input
-                  name="instructor"
-                  className="field"
-                  placeholder="Coach name"
-                  defaultValue={editing?.coach}
+                  value={endDate}
+                  onChange={setEndDate}
+                  min={startDate || undefined}
+                  initialMonth={startDate || undefined}
+                  placeholder="Select end date"
                 />
               </div>
               <div>
@@ -343,6 +356,15 @@ export function EventsClient({
                     <option key={t}>{t}</option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <label className="field-label">Instructor *</label>
+                <input
+                  name="instructor"
+                  className="field"
+                  placeholder="Coach name"
+                  defaultValue={editing?.coach}
+                />
               </div>
               <div>
                 <label className="field-label">Max Seats *</label>

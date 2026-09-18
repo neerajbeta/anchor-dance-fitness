@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 /**
  * Anchor Fitness logo mark — a rounded tile with the brand orange→red gradient
  * and a white dancer silhouette, echoing the supplied logo artwork.
@@ -33,6 +35,7 @@ export function LogoMark({
   );
 }
 
+/** The full Anchor Dance & Fitness logo; `dark` = black lettering for light backgrounds. */
 export function LogoWordmark({
   size = 34,
   dark = false,
@@ -40,15 +43,17 @@ export function LogoWordmark({
   size?: number;
   dark?: boolean;
 }) {
+  const logo = dark
+    ? { src: "/brand/logo-on-light.webp", width: 447, height: 140 }
+    : { src: "/brand/logo-on-dark.webp", width: 394, height: 123 };
   return (
-    <span className="inline-flex items-center gap-2.5">
-      <LogoMark size={size} />
-      <span
-        className="font-display font-extrabold leading-none"
-        style={{ fontSize: size * 0.5, color: dark ? "#211a16" : "#fff" }}
-      >
-        Anchor<span className="text-brand-500"> Fitness</span>
-      </span>
-    </span>
+    <Image
+      src={logo.src}
+      width={logo.width}
+      height={logo.height}
+      alt="Anchor Dance & Fitness"
+      priority
+      style={{ height: Math.round(size * 1.25), width: "auto" }}
+    />
   );
 }

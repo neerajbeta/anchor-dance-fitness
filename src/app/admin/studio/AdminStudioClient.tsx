@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { STUDIO_LOCATIONS } from "@/lib/studioLocations";
 import { StudioCalendar } from "@/components/StudioCalendar";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -13,7 +14,6 @@ function nextMonthIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
-type Loc = { id: string; label: string; flag: string | null };
 type Row = {
   name: string;
   when: string;
@@ -23,6 +23,7 @@ type Row = {
   discountCode?: string | null;
   paid: string;
   status: string;
+  notes?: string | null;
 };
 type Block = {
   id: string;
@@ -35,14 +36,7 @@ type Block = {
 };
 
 export function AdminStudioClient({ rows, blocks }: { rows: Row[]; blocks: Block[] }) {
-  const [locs, setLocs] = useState<Loc[]>([]);
   const [location, setLocation] = useState("");
-
-  useEffect(() => {
-    fetch("/api/locations")
-      .then((r) => r.json())
-      .then((j) => setLocs(j.data ?? []));
-  }, []);
 
   const filteredRows = useMemo(
     () => (location ? rows.filter((r) => r.location === location) : rows),
@@ -68,8 +62,8 @@ export function AdminStudioClient({ rows, blocks }: { rows: Row[]; blocks: Block
         <label className="field-label">Filter by Location</label>
         <select className="field" value={location} onChange={(e) => setLocation(e.target.value)}>
           <option value="">🌍 All Locations</option>
-          {locs.map((l) => (
-            <option key={l.id} value={l.label}>
+          {STUDIO_LOCATIONS.map((l) => (
+            <option key={l.label} value={l.label}>
               {l.flag} {l.label}
             </option>
           ))}
@@ -112,11 +106,23 @@ export function AdminStudioClient({ rows, blocks }: { rows: Row[]; blocks: Block
                     <div className="flex flex-col items-end gap-2">
                       <span className="badge badge-grape">SEK {b.price.toLocaleString()}</span>
                       {b.discountCode && <span className="badge badge-ok text-[10px]">🏷️ {b.discountCode}</span>}
-                      <span className={`badge ${b.paid === "overdue" ? "badge-danger" : "badge-ok"}`}>
-                        {b.paid === "overdue" ? "✗ Overdue" : b.status}
-                      </span>
+                      {b.status === "Payment Cancelled" ? (
+                        <span className="badge badge-danger">✗ Payment Cancelled</span>
+                      ) : b.paid === "pending" ? (
+                        <span className="badge badge-warn">⏳ Awaiting payment</span>
+                      ) : (
+                        <span className={`badge ${b.paid === "overdue" ? "badge-danger" : "badge-ok"}`}>
+                          {b.paid === "overdue" ? "✗ Overdue" : b.status}
+                        </span>
+                      )}
                     </div>
                   </div>
+                  {b.notes && (
+                    <div className="mt-2.5 whitespace-pre-line rounded-lg bg-cream/60 px-3 py-2 text-[12px] text-ink">
+                      <span className="font-semibold text-muted">📝 Notes: </span>
+                      {b.notes}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

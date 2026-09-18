@@ -1,12 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { STUDIO_LOCATIONS, studioLocationFlag } from "@/lib/studioLocations";
 import { useEffect, useState } from "react";
 import { LocationSelect } from "@/components/LocationSelect";
 import { Avatar } from "@/components/ui";
-import { STUDIO_PURPOSES } from "@/lib/data";
-
-const RATE = 600; // SEK per hour — same rate as the user-facing studio booking
+import { DatePicker } from "@/components/theme/DatePicker";
 
 // Full 24h, 30-min steps: 00:00 → 23:30
 const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => {
@@ -15,7 +14,9 @@ const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => {
 });
 
 type Student = { id: string; name: string; email: string; flag: string | null };
-type Loc = { id: string; label: string; flag: string | null };
+
+// Select value for "Other" — can't collide with an admin-defined purpose name.
+const OTHER_PURPOSE = "__other__";
 
 export function BookStudioOnBehalfButton() {
   const router = useRouter();
@@ -32,16 +33,29 @@ export function BookStudioOnBehalfButton() {
   const [newEmail, setNewEmail] = useState("");
 
   // Booking
-  const [locs, setLocs] = useState<Loc[]>([]);
-  const [location, setLocation] = useState("Stockholm");
+  const [location, setLocation] = useState(STUDIO_LOCATIONS[0].label);
+
+  // Same hourly rate + purposes as the student Studio Hire page (admin Portal Settings).
+  const [rate, setRate] = useState<number | null>(null);
+  const [purposes, setPurposes] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch("/api/locations").then((r) => r.json()).then((j) => setLocs(j.data ?? []));
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((j) => {
+        setRate(j.data?.studioHourlyRate ?? null);
+        setPurposes(j.data?.studioPurposes ?? []);
+      })
+      .catch(() => {});
   }, []);
   const [date, setDate] = useState("");
   const [startT, setStartT] = useState("");
   const [hours, setHours] = useState(1);
   const [purpose, setPurpose] = useState("");
+  // "Other" lets the admin type a purpose that isn't in the Portal Settings list.
+  const [otherPurpose, setOtherPurpose] = useState("");
+  const chosenPurpose = purpose === OTHER_PURPOSE ? otherPurpose.trim() : purpose;
+  const [notes, setNotes] = useState("");
 
   // Discount
   const [coupon, setCoupon] = useState("");
@@ -58,7 +72,7 @@ export function BookStudioOnBehalfButton() {
   const endT = startT
     ? TIME_SLOTS[(TIME_SLOTS.indexOf(startT) + hours * 2) % TIME_SLOTS.length] ?? "—"
     : "";
-  const baseAmount = hours * RATE;
+  const baseAmount = hours * (rate ?? 0);
   const discountAmount = applied
     ? applied.type === "flat"
       ? Math.min(baseAmount, applied.flatAmount)
@@ -68,7 +82,7 @@ export function BookStudioOnBehalfButton() {
 
   const studentName = selected ? selected.name : newName;
   const studentEmail = selected ? selected.email : newEmail;
-  const ready = studentName.trim() && studentEmail.trim() && date && startT && purpose;
+  const ready = studentName.trim() && studentEmail.trim() && location && date && startT && chosenPurpose && rate !== null;
 
   useEffect(() => {
     if (!open) return;
@@ -115,9 +129,9 @@ export function BookStudioOnBehalfButton() {
           name: studentName,
           email: studentEmail,
           location,
-          flag: locs.find((l) => l.label === location)?.flag ?? "",
+          flag: studioLocationFlag(location),
           type: "studio",
-          detail: `${date} · ${startT}–${endT} · ${purpose}`,
+          detail: `${date} · ${startT}–${endT} · ${chosenPurpose}`,
           period: date,
           plan: "Studio Hire",
           paid: "paid",
@@ -125,6 +139,7 @@ export function BookStudioOnBehalfButton() {
           statusTone: "ok",
           baseAmount,
           discountCode: applied ? coupon : undefined,
+          notes,
         }),
       });
       const j = await res.json();
@@ -148,6 +163,8 @@ export function BookStudioOnBehalfButton() {
     setStartT("");
     setHours(1);
     setPurpose("");
+    setOtherPurpose("");
+    setNotes("");
     setCoupon("");
     setApplied(null);
     setCouponError(null);
@@ -273,13 +290,13 @@ export function BookStudioOnBehalfButton() {
 
                 <div className="mb-3">
                   <label className="field-label">Location *</label>
-                  <LocationSelect value={location} onChange={(e) => setLocation(e.target.value)} />
+                  <LocationSelect studio value={location} onChange={(e) => setLocation(e.target.value)} />
                 </div>
 
                 <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div>
                     <label className="field-label">Date *</label>
-                    <input className="field" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                    <DatePicker variant="admin" value={date} onChange={setDate} placeholder="Select date" />
                   </div>
                   <div>
                     <label className="field-label">Start Time *</label>
@@ -313,10 +330,33 @@ export function BookStudioOnBehalfButton() {
                   <label className="field-label">Purpose *</label>
                   <select className="field" value={purpose} onChange={(e) => setPurpose(e.target.value)}>
                     <option value="">— Select purpose —</option>
-                    {STUDIO_PURPOSES.map((p) => (
+                    {purposes.map((p) => (
                       <option key={p}>{p}</option>
                     ))}
+                    <option value={OTHER_PURPOSE}>Other (describe purpose)</option>
                   </select>
+                  {purpose === OTHER_PURPOSE && (
+                    <input
+                      className="field mt-2"
+                      value={otherPurpose}
+                      onChange={(e) => setOtherPurpose(e.target.value.slice(0, 120))}
+                      placeholder="Describe the purpose (required)"
+                      maxLength={120}
+                      autoFocus
+                    />
+                  )}
+                </div>
+
+                <div className="mb-3">
+                  <label className="field-label">Notes (optional)</label>
+                  <textarea
+                    className="field"
+                    rows={2}
+                    maxLength={500}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Any special requirements (e.g. mirrors, sound system)…"
+                  />
                 </div>
 
                 {/* Coupon */}

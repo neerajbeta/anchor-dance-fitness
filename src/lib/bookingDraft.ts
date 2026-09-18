@@ -9,6 +9,8 @@ export type BookingDraft = {
   flag?: string;
   mode: "online" | "offline";
   period: string; // display string, e.g. "2025-08-04 – 2025-10-31"
+  startDate?: string; // ISO, class bookings — decides which plans fit
+  endDate?: string;
   detail: string; // e.g. "Morning Bollywood · 10:00–12:00"
   category?: string;
   level?: string;
@@ -32,6 +34,7 @@ export type LastBooking = {
   amount: number;
   baseAmount: number;
   discountCode?: string | null;
+  notes?: string | null;
 };
 
 const DRAFT_KEY = "af_booking_draft";

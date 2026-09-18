@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { STUDIO_LOCATIONS } from "@/lib/studioLocations";
 
 type Loc = { id: string; label: string; country: string | null; flag: string | null };
 
@@ -16,6 +17,7 @@ export function LocationSelect({
   withCountry = false,
   allOption,
   required,
+  studio = false,
 }: {
   name?: string;
   className?: string;
@@ -24,13 +26,19 @@ export function LocationSelect({
   withCountry?: boolean;
   allOption?: string;
   required?: boolean;
+  /** Only the studio-hire venues (fixed list), instead of the Locations table. */
+  studio?: boolean;
 }) {
   const [locs, setLocs] = useState<Loc[]>([]);
   useEffect(() => {
+    if (studio) {
+      setLocs(STUDIO_LOCATIONS.map((l) => ({ id: l.label, label: l.label, country: null, flag: l.flag })));
+      return;
+    }
     fetch("/api/locations")
       .then((r) => r.json())
       .then((j) => setLocs(j.data ?? []));
-  }, []);
+  }, [studio]);
 
   const controlled = value !== undefined;
 

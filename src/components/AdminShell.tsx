@@ -24,6 +24,7 @@ const NAV: { section: string | null; items: NavItem[] }[] = [
       { href: "/admin/levels", label: "Levels", icon: "🎚️", permission: "levels.view" },
       { href: "/admin/locations", label: "Locations", icon: "📍", permission: "locations.view" },
       { href: "/admin/discounts", label: "Discounts", icon: "🏷️", permission: "discounts.view" },
+      { href: "/admin/plans", label: "Plans", icon: "💳", permission: "plans.view" },
     ],
   },
   {
@@ -38,7 +39,10 @@ const NAV: { section: string | null; items: NavItem[] }[] = [
   },
   {
     section: "Comms",
-    items: [{ href: "/admin/announcements", label: "Announcements", icon: "📩", permission: "announcements.view" }],
+    items: [
+      { href: "/admin/announcements", label: "Announcements", icon: "📩", permission: "announcements.view" },
+      { href: "/admin/email-templates", label: "Email Templates", icon: "✉️", permission: "settings.view" },
+    ],
   },
   {
     section: "User Management",
@@ -49,7 +53,7 @@ const NAV: { section: string | null; items: NavItem[] }[] = [
   },
   {
     section: "Settings",
-    items: [{ href: "#", label: "Portal Settings", icon: "⚙️" }],
+    items: [{ href: "/admin/settings", label: "Portal Settings", icon: "⚙️", permission: "settings.view" }],
   },
 ];
 

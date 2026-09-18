@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { WEEKDAYS, countSessions, parseDays } from "@/lib/classSchedule";
+import { DatePicker } from "@/components/theme/DatePicker";
 
 type Location = { id: string; label: string };
 type Category = { id: string; name: string };
@@ -30,34 +32,6 @@ const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => {
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 });
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
-// JS getDay(): 0=Sun..6=Sat — map to our Mon-first order above.
-const JS_DAY_TO_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function parseDays(days: string | null): Set<string> {
-  if (!days) return new Set();
-  return new Set(
-    days
-      .split(",")
-      .map((d) => d.trim())
-      .filter(Boolean)
-  );
-}
-
-// How many sessions a recurring class actually runs, given its date range and selected
-// weekdays — computed instead of asked for, since a manually-typed count drifts from reality
-// the moment the date range changes.
-function countSessions(startDate: string, endDate: string, days: Set<string>): number {
-  if (!startDate || !endDate || days.size === 0) return 0;
-  const start = new Date(startDate + "T00:00:00");
-  const end = new Date(endDate + "T00:00:00");
-  if (end < start) return 0;
-  let n = 0;
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    if (days.has(JS_DAY_TO_LABEL[d.getDay()])) n++;
-  }
-  return n;
-}
 
 export function ClassesManager() {
   const [classes, setClasses] = useState<ClassRow[]>([]);
@@ -337,22 +311,28 @@ export function ClassesManager() {
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div>
                 <label className="field-label">Start Date *</label>
-                <input
-                  className="field"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                <DatePicker
+                  variant="admin"
                   required
+                  value={startDate}
+                  onChange={(v) => {
+                    setStartDate(v);
+                    if (endDate && v && endDate < v) setEndDate("");
+                  }}
+                  placeholder="Start date"
                 />
               </div>
               <div>
                 <label className="field-label">End Date *</label>
-                <input
-                  className="field"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                <DatePicker
+                  variant="admin"
                   required
+                  value={endDate}
+                  onChange={setEndDate}
+                  min={startDate || undefined}
+                  initialMonth={startDate || undefined}
+                  markWeekdays={selectedDays}
+                  placeholder="End date"
                 />
               </div>
               <div>
@@ -424,13 +404,7 @@ export function ClassesManager() {
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
               <label className="field-label">Date *</label>
-              <input
-                className="field"
-                type="date"
-                value={singleDate}
-                onChange={(e) => setSingleDate(e.target.value)}
-                required
-              />
+              <DatePicker variant="admin" required value={singleDate} onChange={setSingleDate} placeholder="Class date" />
             </div>
             <div>
               <label className="field-label">Start Time *</label>
