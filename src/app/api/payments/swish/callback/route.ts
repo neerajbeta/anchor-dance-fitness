@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/origin";
 import { getRegistrationByPaymentRef, markRegistrationPaid } from "@/lib/services";
 import { getSwishPaymentStatus } from "@/lib/payments/swish";
 import { sendBookingConfirmation } from "@/lib/email/notify";
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
     const result = await getSwishPaymentStatus(instructionId);
     if (result.paid) {
       const paid = await markRegistrationPaid(row.id, "swish", instructionId);
-      if (paid) void sendBookingConfirmation(paid, req.nextUrl.origin);
+      if (paid) void sendBookingConfirmation(paid, publicOrigin(req));
     }
 
     return NextResponse.json({ ok: true });

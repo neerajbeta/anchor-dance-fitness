@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/origin";
 import { DbNotConfiguredError } from "@/lib/services";
 import { checkPayment, PaymentNotFoundError } from "@/lib/payments/verify";
 import { StripeApiError, StripeNotConfiguredError } from "@/lib/payments/stripe";
@@ -37,10 +38,10 @@ async function handle(id: string, cancel: boolean, origin: string) {
 }
 
 export async function GET(req: NextRequest) {
-  return handle(req.nextUrl.searchParams.get("id") ?? "", false, req.nextUrl.origin);
+  return handle(req.nextUrl.searchParams.get("id") ?? "", false, publicOrigin(req));
 }
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { id?: string };
-  return handle(String(body.id ?? ""), true, req.nextUrl.origin);
+  return handle(String(body.id ?? ""), true, publicOrigin(req));
 }

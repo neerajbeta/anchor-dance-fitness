@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/origin";
 import { requireAdmin } from "@/lib/auth/api";
 import { requirePermission } from "@/lib/auth/permissions";
 import {
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     await assertNotDuplicateBooking(body);
     const row = await createRegistration(body);
     // The customer hears about a booking an admin made for them too.
-    void sendBookingConfirmation(row, req.nextUrl.origin);
+    void sendBookingConfirmation(row, publicOrigin(req));
     return NextResponse.json({ data: row }, { status: 201 });
   } catch (err) {
     return handle(err);

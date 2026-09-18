@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/origin";
 import { createSessionToken, USER_SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth/session";
 import { registerStudent, DbNotConfiguredError, EmailTakenError } from "@/lib/services";
 import { sendWelcomeEmail } from "@/lib/email/notify";
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
       city: b.city,
       country: b.country,
     });
-    void sendWelcomeEmail(user, req.nextUrl.origin);
+    void sendWelcomeEmail(user, publicOrigin(req));
     const token = await createSessionToken({ email: user.email, name: user.name, role: user.role });
 
     const res = NextResponse.json({ data: { email: user.email, name: user.name } }, { status: 201 });

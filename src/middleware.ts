@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
+import { publicOrigin } from "@/lib/origin";
 
 // Server-side gate for the admin panel. Runs before every /admin/* request.
 export async function middleware(req: NextRequest) {
@@ -10,14 +11,14 @@ export async function middleware(req: NextRequest) {
   // The login page is public; bounce already-authenticated users onward.
   if (pathname === "/admin/login") {
     if (session) {
-      return NextResponse.redirect(new URL("/admin/registrations", req.url));
+      return NextResponse.redirect(new URL("/admin/registrations", publicOrigin(req)));
     }
     return NextResponse.next();
   }
 
   // Everything else under /admin requires a valid session.
   if (!session) {
-    const url = new URL("/admin/login", req.url);
+    const url = new URL("/admin/login", publicOrigin(req));
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }

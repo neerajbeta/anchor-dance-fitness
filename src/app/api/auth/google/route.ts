@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/origin";
 import { buildGoogleAuthUrl } from "@/lib/auth/google";
 
 export const runtime = "nodejs";
@@ -8,12 +9,12 @@ const STATE_COOKIE = "af_google_state";
 export async function GET(req: NextRequest) {
   if (!process.env.GOOGLE_CLIENT_ID) {
     return NextResponse.redirect(
-      new URL("/login?error=google_not_configured", req.nextUrl.origin)
+      new URL("/login?error=google_not_configured", publicOrigin(req))
     );
   }
 
   const state = crypto.randomUUID();
-  const res = NextResponse.redirect(buildGoogleAuthUrl(req.nextUrl.origin, state));
+  const res = NextResponse.redirect(buildGoogleAuthUrl(publicOrigin(req), state));
   res.cookies.set(STATE_COOKIE, state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

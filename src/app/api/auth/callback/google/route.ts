@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/origin";
 import { exchangeCodeForToken, fetchGoogleProfile } from "@/lib/auth/google";
 import { createSessionToken, USER_SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth/session";
 import { upsertOAuthUser, DbNotConfiguredError } from "@/lib/services";
@@ -9,7 +10,7 @@ export const runtime = "nodejs";
 const STATE_COOKIE = "af_google_state";
 
 export async function GET(req: NextRequest) {
-  const origin = req.nextUrl.origin;
+  const origin = publicOrigin(req);
   const fail = (reason: string) =>
     NextResponse.redirect(new URL(`/login?error=${reason}`, origin));
 

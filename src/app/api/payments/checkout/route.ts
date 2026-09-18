@@ -12,6 +12,7 @@ import {
   type RegistrationInput,
 } from "@/lib/services";
 import { paymentPageUrl } from "@/lib/payments/pages";
+import { publicOrigin } from "@/lib/origin";
 import { isStudioLocation, STUDIO_LOCATION_ERROR } from "@/lib/studioLocations";
 import { sendBookingConfirmation } from "@/lib/email/notify";
 import { getUserSession } from "@/lib/auth/userActions";
@@ -27,12 +28,6 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** The public origin Stripe/Swish send the user (and callbacks) back to. */
-function publicOrigin(req: NextRequest) {
-  const configured = (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim().replace(/\/$/, "");
-  return configured || req.nextUrl.origin;
-}
 
 /**
  * Starts checkout for a self-service booking.
