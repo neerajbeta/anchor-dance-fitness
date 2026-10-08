@@ -13,6 +13,7 @@ import {
   ResultLayout,
   methodLabel,
   sek,
+  VatDetailRow,
 } from "@/components/payments/ResultParts";
 
 /** Studio Hire — payment started but not confirmed yet. Keeps checking by itself. */
@@ -51,6 +52,7 @@ function StudioPaymentPending() {
       <DetailCard title={`Studio booking · #${result.ref}`}>
         <DetailRow k="Status" v={<span className="font-semibold text-warn">Slot held — awaiting payment</span>} />
         <DetailRow k="Paying with" v={methodLabel(result.check?.method)} />
+        <VatDetailRow check={result.check} />
         <DetailRow k="Amount" v={sek(result.check?.amount ?? 0)} strong />
       </DetailCard>
 

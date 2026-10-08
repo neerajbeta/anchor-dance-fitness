@@ -2,15 +2,17 @@
 // for every booking that's done (paid, free, or booked by an admin). Server only.
 
 import { bookingTemplateKey } from "./defaults";
+import { formatVatRate } from "@/lib/vat";
 import type { DetailRow, EmailVars } from "./render";
-import { sendTemplateEmail, type SendOutcome } from "./send";
-import { getAdminEmailRecipients, getUserPhone } from "@/lib/services";
+import { sendTemplateEmail, type EmailAttachment, type SendOutcome } from "./send";
+import { ensureInvoice, getAdminEmailRecipients, getUserPhone, getZoomLinkForClass, markInvoiceEmailed } from "@/lib/services";
+import { invoiceFileName, renderInvoicePdf } from "@/lib/invoicePdf";
 
 const SITE_NAME = "Anchor Dance & Fitness";
 
 /** Public origin for links inside emails. */
 function siteUrl(origin?: string | null) {
-  const configured = (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim().replace(/\/$/, "");
+  const configured = (process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "").trim().replace(/\/$/, "");
   return configured || (origin ?? "").replace(/\/$/, "") || "http://localhost:3000";
 }
 
@@ -34,6 +36,81 @@ export function sendWelcomeEmail(user: { name: string; email: string }, origin?:
   });
 }
 
+/** The booking's invoice as a PDF attachment, or null (not paid / couldn't be made). */
+async function invoiceAttachment(registrationId: string): Promise<{ id: string; number: string; file: EmailAttachment } | null> {
+  try {
+    const inv = await ensureInvoice(registrationId);
+    if (!inv) return null;
+    const pdf = await renderInvoicePdf(inv);
+    return { id: inv.id, number: inv.number, file: { name: invoiceFileName(inv), content: pdf, contentType: "application/pdf" } };
+  } catch (err) {
+    console.error(`[invoice] attachment for ${registrationId} failed:`, err);
+    return null;
+  }
+}
+
+/**
+ * Emails a booking's invoice (PDF attached) to the customer — the admin
+ * "Email invoice" button. Sends every time it's pressed.
+ */
+export async function sendInvoiceEmail(registrationId: string, origin?: string | null, to?: string) {
+  const invoice = await invoiceAttachment(registrationId);
+  if (!invoice) return "not-invoiceable" as const;
+  const inv = await ensureInvoice(registrationId);
+  if (!inv) return "not-invoiceable" as const;
+  const outcome = await sendTemplateEmail({
+    key: "invoice",
+    to: to?.trim() || inv.customerEmail,
+    vars: {
+      ...baseVars({ name: inv.customerName, email: inv.customerEmail }, origin),
+      invoice_number: inv.number,
+      booking_id: inv.registrationId,
+      title: inv.description,
+      amount: sek(inv.total),
+      invoice_date: (inv.issuedAt ?? new Date()).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
+    },
+    dedupeKey: `invoice:${inv.id}:${Date.now()}`,
+    attachments: [invoice.file],
+  });
+  if (outcome === "sent") await markInvoiceEmailed(inv.id).catch(() => {});
+  return outcome;
+}
+
+/** Tells the next person on a waitlist that a seat is theirs if they book in time. */
+export function sendWaitlistSeatEmail(
+  entry: { id: string; name: string; email: string; type: string; offerExpiresAt: Date | null; offeredAt: Date | null },
+  target: { title: string; when: string; location: string; path: string },
+  holdHours: number,
+  origin?: string | null
+) {
+  const expires = entry.offerExpiresAt
+    ? entry.offerExpiresAt.toLocaleString("en-GB", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Europe/Stockholm",
+      })
+    : "";
+  return sendTemplateEmail({
+    key: "waitlist_seat",
+    to: entry.email,
+    vars: {
+      ...baseVars(entry, origin),
+      booking_type: TYPE_LABEL[entry.type] ?? entry.type,
+      title: target.title,
+      dates: target.when,
+      location: target.location,
+      book_url: `${siteUrl(origin)}${target.path}`,
+      expires,
+      hold_hours: String(holdHours),
+    },
+    // One email per offer (a later re-offer to the same person sends again).
+    dedupeKey: `waitlist_seat:${entry.id}:${entry.offeredAt?.getTime() ?? 0}`,
+  });
+}
+
 type BookingRow = {
   id: string;
   name: string;
@@ -45,10 +122,14 @@ type BookingRow = {
   location: string;
   mode: string | null;
   amount: number;
+  vatRateBp?: number;
+  vatMode?: string | null;
+  vatAmount?: number;
   paid: string;
   paymentMethod?: string | null;
   discountCode: string | null;
   notes?: string | null;
+  classId?: string | null;
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -98,6 +179,10 @@ async function sendBookingEmails(
     row.amount <= 0 ? "" : row.paymentMethod ? METHOD_LABEL[row.paymentMethod] ?? row.paymentMethod : "";
   const paymentStatus = row.amount <= 0 ? "Free" : PAID_LABEL[row.paid] ?? row.paid;
   const detail = row.detail ?? "";
+  const vatText =
+    row.vatMode && row.vatAmount
+      ? `${sek(row.vatAmount)} (${formatVatRate(row.vatRateBp ?? 0)}, ${row.vatMode === "exclusive" ? "added" : "included"})`
+      : "";
 
   const vars: EmailVars = {
     ...baseVars(row, origin),
@@ -109,6 +194,7 @@ async function sendBookingEmails(
     location: row.location,
     mode,
     amount: sek(row.amount),
+    vat: vatText,
     payment_status: paymentStatus,
     payment_method: paymentMethod,
     discount_code: row.discountCode ?? "",
@@ -127,6 +213,7 @@ async function sendBookingEmails(
       ["Purpose", purpose.join(" · ")],
       ["Location", row.location],
       ["Amount", sek(row.amount)],
+      ["VAT", vatText],
       ["Payment", payment],
       ["Discount", row.discountCode ?? ""],
       ["Your notes", row.notes ?? ""],
@@ -141,14 +228,35 @@ async function sendBookingEmails(
       ["Location", row.location],
       ["Mode", mode],
       ["Amount", sek(row.amount)],
+      ["VAT", vatText],
       ["Payment", payment],
       ["Discount", row.discountCode ?? ""],
       ["Your notes", row.notes ?? ""],
     ];
   }
 
+  // Online class with a Zoom meeting → the join link goes in the email.
+  const zoomLink = row.type === "class" && row.mode === "online" ? await getZoomLinkForClass(row.classId).catch(() => null) : null;
+  if (zoomLink) {
+    vars.zoom_link = zoomLink.joinUrl;
+    vars.zoom_password = zoomLink.password ?? "";
+    const at = details.findIndex(([k]) => k === "Mode");
+    details.splice(at >= 0 ? at + 1 : details.length, 0, ["Zoom link", zoomLink.joinUrl], ["Zoom passcode", zoomLink.password ?? ""]);
+  }
+
   if (audience === "customer") {
-    return sendTemplateEmail({ key, to: row.email, vars, details, dedupeKey: `${key}:${row.id}` });
+    // A paid booking gets its invoice attached (issued now if it isn't yet).
+    const invoice = row.paid === "paid" && row.amount > 0 ? await invoiceAttachment(row.id) : null;
+    const outcome = await sendTemplateEmail({
+      key,
+      to: row.email,
+      vars: invoice ? { ...vars, invoice_number: invoice.number } : vars,
+      details: invoice ? [...details, ["Invoice", `${invoice.number} (attached)`]] : details,
+      dedupeKey: `${key}:${row.id}`,
+      attachments: invoice ? [invoice.file] : undefined,
+    });
+    if (invoice && outcome === "sent") await markInvoiceEmailed(invoice.id).catch(() => {});
+    return outcome;
   }
 
   try {

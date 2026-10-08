@@ -24,6 +24,21 @@ export type PlanInput = {
 
 export const PLAN_INTERVALS: PlanInterval[] = ["demo", "monthly", "quarterly", "biannual", "annual", "onetime"];
 
+/**
+ * The trial (demo) plan — one class, charged once, at the plan's own price.
+ * Its price is the trial price the whole app uses: the student's Choose Plan
+ * screen, admin Book on Behalf and the Trial Sessions report all read it from
+ * here, so it's changed in one place (Catalog → Plans).
+ */
+export function isTrialPlan(plan: Pick<Plan, "interval">) {
+  return plan.interval === "demo";
+}
+
+/** The trial plan out of a list, or null when the studio doesn't offer one. */
+export function trialPlanOf<P extends Pick<Plan, "interval">>(list: P[] | null | undefined): P | null {
+  return list?.find(isTrialPlan) ?? null;
+}
+
 /** Months a plan covers. 0 = charged once (demo / one-time). */
 export const INTERVAL_MONTHS: Record<PlanInterval, number> = {
   demo: 0,

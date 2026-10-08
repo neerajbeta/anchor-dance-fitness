@@ -8,6 +8,7 @@ import { Stepper } from "@/components/theme/Stepper";
 import { LocationSelect } from "@/components/LocationSelect";
 import {
   INTERVAL_MONTHS,
+  isTrialPlan,
   monthsBetween,
   planSavings,
   plansForMonths,
@@ -16,7 +17,9 @@ import {
   type Plan,
 } from "@/lib/plans";
 import { loadDraft, type BookingDraft } from "@/lib/bookingDraft";
-import { PaymentMethodPicker, useCheckout } from "@/components/payments/Checkout";
+import { ConsentGate, PaymentMethodPicker, useCheckout } from "@/components/payments/Checkout";
+import { useVatRules } from "@/lib/useVatRules";
+import { applyVat, formatVatRate, vatPriceNote, vatRuleFor } from "@/lib/vat";
 
 type Loc = { id: string; label: string; flag: string | null };
 
@@ -41,10 +44,13 @@ export default function PlansPage() {
   const [couponError, setCouponError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const checkout = useCheckout();
-  const { error, setError } = checkout;
+  const { error, setError, setConsent } = checkout;
 
   useEffect(() => {
-    setDraft(loadDraft());
+    const d = loadDraft();
+    setDraft(d);
+    // They already ticked the GDPR box on the class step — carry it over.
+    if (d?.consent) setConsent(d.consent);
     // Signed in (e.g. auto-login right after registering) — prefill their details.
     fetch("/api/auth/me")
       .then((r) => (r.ok ? r.json() : null))
@@ -64,9 +70,9 @@ export default function PlansPage() {
       .then(async (r) => {
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || "Couldn't load plans");
-        // The demo/trial plan isn't sold here — it's booked through "Book a Demo".
-        const list = sortPlans((j.data ?? []) as Plan[]).filter((p) => p.interval !== "demo");
-        setPlans(list);
+        // The trial plan is offered here too — one class at the trial price,
+        // so someone can try a batch before committing to a term.
+        setPlans(sortPlans((j.data ?? []) as Plan[]));
       })
       .catch((err) => {
         setPlans([]);
@@ -76,7 +82,7 @@ export default function PlansPage() {
       .then((r) => r.json())
       .then((j) => setLocs(j.data ?? []))
       .catch(() => {});
-  }, []);
+  }, [setConsent]);
 
   // Class bookings and plan-only purchases choose a plan; workshops/events/studio are one-time.
   const choosesPlan = !draft || draft.type === "class";
@@ -99,6 +105,10 @@ export default function PlansPage() {
 
   const plan = shownPlans?.find((p) => p.id === sel) ?? null;
   const months = plan ? INTERVAL_MONTHS[plan.interval] : 0;
+  // A trial is a single class at the trial price — not the term the customer
+  // picked, and never multiplied by the class's monthly price.
+  const isTrial = Boolean(plan && isTrialPlan(plan));
+  // planTotal() already ignores this for the trial plan (it charges once).
   const classPrice = draft?.type === "class" && draft.baseAmount > 0 ? draft.baseAmount : null;
   const base = !choosesPlan ? draft?.baseAmount ?? 0 : plan ? planTotal(plan, classPrice) : 0;
   const discountAmount = applied
@@ -106,7 +116,11 @@ export default function PlansPage() {
       ? Math.min(base, applied.flatAmount)
       : Math.round((base * applied.percent) / 100)
     : 0;
-  const total = base - discountAmount;
+  // VAT per the admin VAT master — the same sum the server charges.
+  const vatRules = useVatRules();
+  const vatRule = vatRuleFor(vatRules, draft?.type ?? "class");
+  const vat = applyVat(base - discountAmount, vatRule);
+  const total = vat.total;
 
   const monthlyPlan = plans?.find((p) => p.interval === "monthly") ?? null;
   // "Best value" = the plan-only option with the biggest saving vs paying monthly.
@@ -161,6 +175,8 @@ export default function PlansPage() {
       return;
     }
     const planName = choosesPlan && plan ? plan.name : "One-time";
+    // A trial is one class on the start date, so it isn't recorded as a term.
+    const trialDate = draft?.startDate ?? draft?.period.split(" – ")[0] ?? "";
     const booking = draft
       ? {
           name,
@@ -172,9 +188,9 @@ export default function PlansPage() {
           category: draft.category,
           level: draft.level,
           mode: draft.mode,
-          period: draft.period,
+          period: isTrial && trialDate ? trialDate : draft.period,
           plan: planName,
-          status: draft.type === "class" ? "Pending Batch" : "Confirmed",
+          status: isTrial ? "Trial Booked" : draft.type === "class" ? "Pending Batch" : "Confirmed",
           statusTone: draft.type === "class" ? "warn" : "ok",
           discountCode: applied ? coupon : undefined,
           classId: draft.classId,
@@ -196,7 +212,7 @@ export default function PlansPage() {
     checkout.pay(booking, base);
   }
 
-  const canPay = !checkout.inProgress && checkout.methodReady && (!choosesPlan || !!plan);
+  const canPay = !checkout.inProgress && checkout.methodReady && checkout.consentReady && (!choosesPlan || !!plan);
 
   return (
     <div className="app-canvas flex min-h-screen flex-col">
@@ -224,7 +240,8 @@ export default function PlansPage() {
             <strong>Booking Summary:</strong> {draft.detail}
             {draft.category ? ` · ${draft.category}` : ""}
             {draft.level ? ` · ${draft.level}` : ""} · {draft.period}
-            {classPrice ? ` · SEK ${classPrice.toLocaleString()} / month` : ""} ·{" "}
+            {classPrice ? ` · SEK ${classPrice.toLocaleString()} / month` : ""}
+            {vatRule ? ` (${vatPriceNote(vatRule)})` : ""} ·{" "}
             <span className="badge badge-info">{draft.mode === "online" ? "💻 Online" : "🏃 In-Person"}</span>
           </div>
         )}
@@ -248,13 +265,21 @@ export default function PlansPage() {
                 </Link>
               </p>
             )}
+            {isTrial && (
+              <p className="mb-3 rounded-lg border-[1.5px] border-info/40 bg-info/10 px-4 py-2.5 text-[12px] text-[#245a8a] dark:text-sky-200">
+                🎟️ You&apos;ve picked the trial — that&apos;s <strong>one class</strong>
+                {draft?.startDate ? ` on ${draft.startDate}` : ""}, charged once. Your dates only apply if you choose a
+                membership plan instead.
+              </p>
+            )}
             <div className="mb-6 grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5">
               {shownPlans.map((p) => {
                 const active = p.id === sel;
                 const pMonths = INTERVAL_MONTHS[p.interval];
                 const cardTotal = planTotal(p, classPrice);
-                const savings = classPrice ? 0 : planSavings(p, monthlyPlan);
-                const tag = p.id === bestValueId ? "BEST VALUE" : null;
+                const trial = isTrialPlan(p);
+                const savings = classPrice || trial ? 0 : planSavings(p, monthlyPlan);
+                const tag = trial ? "TRY IT FIRST" : p.id === bestValueId ? "BEST VALUE" : null;
                 return (
                   <button
                     key={p.id}
@@ -267,7 +292,11 @@ export default function PlansPage() {
                     }`}
                   >
                     {tag && (
-                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-accent px-2.5 py-0.5 text-[10px] font-bold text-white">
+                      <span
+                        className={`absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl px-2.5 py-0.5 text-[10px] font-bold text-white ${
+                          trial ? "bg-info" : "bg-accent"
+                        }`}
+                      >
                         {tag}
                       </span>
                     )}
@@ -294,8 +323,14 @@ export default function PlansPage() {
                         )}
                       </>
                     )}
+                    {vatRule ? (
+                      <div className="mt-0.5 text-[10px] font-semibold text-copy-dim">{vatPriceNote(vatRule)}</div>
+                    ) : null}
                     {savings > 0 && (
                       <div className="mt-1 text-[11px] font-semibold text-ok">Save SEK {savings.toLocaleString()}</div>
+                    )}
+                    {trial && (
+                      <div className="mt-1 text-[11px] font-semibold text-info">One class · charged once</div>
                     )}
                     {p.description && <p className="mt-1 text-[11px] leading-snug text-copy-dim">{p.description}</p>}
                   </button>
@@ -388,6 +423,8 @@ export default function PlansPage() {
           {/* Payment method — the actual payment happens at Stripe or in the Swish app. */}
           <PaymentMethodPicker checkout={checkout} />
 
+          <ConsentGate checkout={checkout} />
+
           <div className="rounded-lg border-[1.5px] border-hairline bg-surface-muted/50 p-4">
             <div className="flex justify-between gap-3 border-b border-hairline py-1.5 text-[13px]">
               <span>
@@ -405,10 +442,16 @@ export default function PlansPage() {
                 <span>− SEK {discountAmount.toLocaleString()}</span>
               </div>
             )}
-            <div className="flex justify-between border-b border-hairline py-1.5 text-[13px]">
-              <span>Tax (0%)</span>
-              <span>SEK 0</span>
-            </div>
+            {vat.mode ? (
+              <div className="flex justify-between border-b border-hairline py-1.5 text-[13px]">
+                <span>
+                  {vat.mode === "exclusive" ? "VAT" : "Includes VAT"} ({formatVatRate(vat.rateBp)})
+                </span>
+                <span>
+                  {vat.mode === "exclusive" ? "+ " : ""}SEK {vat.vat.toLocaleString()}
+                </span>
+              </div>
+            ) : null}
             <div className="flex justify-between py-1.5 text-sm font-bold">
               <span>Total Due Today</span>
               <span className="text-accent">SEK {total.toLocaleString()}</span>

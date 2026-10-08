@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { Avatar, SectionHead } from "@/components/ui";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 import type { Registration } from "@/lib/data";
 import type { PaymentStats } from "@/lib/stats";
 
@@ -14,9 +15,34 @@ export function PaymentsClient({ stats }: { stats: PaymentStats }) {
   const [q, setQ] = useState("");
   const [locOpts, setLocOpts] = useState<{ id: string; label: string; flag: string | null }[]>([]);
 
+  // Invoice numbers by booking id (paid bookings get one when first downloaded/emailed or paid online).
+  const [invoices, setInvoices] = useState<Record<string, { number: string; emailedAt: string | null }>>({});
+  const [emailing, setEmailing] = useState<string | null>(null);
+  const loadInvoices = () =>
+    fetch("/api/invoices")
+      .then((r) => r.json())
+      .then((j) =>
+        setInvoices(Object.fromEntries(((j.data ?? []) as { registrationId: string; number: string; emailedAt: string | null }[]).map((i) => [i.registrationId, i])))
+      )
+      .catch(() => {});
+
   useEffect(() => {
     fetch("/api/locations").then((r) => r.json()).then((j) => setLocOpts(j.data ?? []));
+    loadInvoices();
   }, []);
+
+  async function emailInvoice(r: Registration) {
+    if (!confirm(`Email the invoice for ${r.id} to ${r.email}?`)) return;
+    setEmailing(r.id);
+    try {
+      const res = await fetch(`/api/invoices/${encodeURIComponent(r.id)}/email`, { method: "POST" });
+      const j = await res.json().catch(() => ({}));
+      alert(j.data?.message ?? j.error ?? "Done");
+      loadInvoices();
+    } finally {
+      setEmailing(null);
+    }
+  }
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -46,8 +72,30 @@ export function PaymentsClient({ stats }: { stats: PaymentStats }) {
             ) : (
               <span className="badge badge-warn">● Sample data</span>
             )}
-            <button className="btn btn-ghost btn-sm">📥 Export</button>
-            <button className="btn btn-primary btn-sm">📩 Bulk Reminders</button>
+            <ExportExcelButton
+              rows={filtered}
+              filename="Payments"
+              notes={[`Payment Dashboard — ${filtered.length} of ${rows.length} bookings`]}
+              columns={[
+                { label: "Booking ID", value: (r) => r.id },
+                { label: "Invoice no.", value: (r) => invoices[r.id]?.number ?? "" },
+                { label: "Name", value: (r) => r.name },
+                { label: "Email", value: (r) => r.email },
+                { label: "Type", value: (r) => r.type },
+                { label: "Detail", value: (r) => r.detail },
+                { label: "Location", value: (r) => r.location },
+                { label: "Period", value: (r) => r.period },
+                { label: "Plan", value: (r) => r.plan },
+                { label: "Amount (SEK)", value: (r) => r.amount ?? 0 },
+                { label: "Discount code", value: (r) => r.discountCode ?? "" },
+                { label: "Payment", value: (r) => r.paid },
+                { label: "Status", value: (r) => r.status },
+                { label: "Invoice emailed", value: (r) => invoices[r.id]?.emailedAt?.slice(0, 10) ?? "" },
+              ]}
+            />
+            <a href="/admin/reminders" className="btn btn-primary btn-sm no-underline">
+              📩 Bulk Reminders
+            </a>
           </div>
         }
       />
@@ -104,12 +152,13 @@ export function PaymentsClient({ stats }: { stats: PaymentStats }) {
                 <th>Plan</th>
                 <th>Amount</th>
                 <th>Payment</th>
+                <th>Invoice</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-14 text-center">
+                  <td colSpan={9} className="py-14 text-center">
                     <div className="text-3xl">💳</div>
                     <div className="mt-2 font-bold text-ink">
                       {rows.length === 0 ? "No payments yet" : "No matches"}
@@ -149,6 +198,31 @@ export function PaymentsClient({ stats }: { stats: PaymentStats }) {
                         <span className="badge badge-danger">✗ Overdue</span>
                       ) : (
                         <span className="badge badge-ok">✓ Paid</span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap text-[12px]">
+                      {r.paid === "paid" && (r.amount ?? 0) > 0 ? (
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={`/api/invoices/${encodeURIComponent(r.id)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-semibold text-brand-600 hover:underline"
+                            title="Open the invoice PDF"
+                          >
+                            🧾 {invoices[r.id]?.number ?? "Invoice"}
+                          </a>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            title={invoices[r.id]?.emailedAt ? `Emailed ${new Date(invoices[r.id].emailedAt!).toLocaleString()} — send again` : "Email the invoice to the customer"}
+                            disabled={emailing === r.id}
+                            onClick={() => emailInvoice(r)}
+                          >
+                            {emailing === r.id ? "…" : invoices[r.id]?.emailedAt ? "✉️✓" : "✉️"}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-muted">—</span>
                       )}
                     </td>
                   </tr>

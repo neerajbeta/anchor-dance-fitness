@@ -25,11 +25,16 @@ import { Stepper } from "@/components/theme/Stepper";
 import { Select } from "@/components/theme/Input";
 import { DatePicker } from "@/components/theme/DatePicker";
 import { Button } from "@/components/theme/Button";
-import { ConsentCheckbox } from "@/components/theme/form-field";
+import { ConsentChoices } from "@/components/ConsentChoices";
+import { EMPTY_CONSENT, hasRequiredConsent } from "@/lib/consent";
 import { saveDraft } from "@/lib/bookingDraft";
 import { monthsBetween } from "@/lib/plans";
 import { countSessions, isSeries, lastClassDate, parseDays, scheduleDates } from "@/lib/classSchedule";
 import { cn } from "@/lib/cn";
+import { useVatRules } from "@/lib/useVatRules";
+import { VatTag } from "@/components/payments/Vat";
+import { vatPriceNote, vatRuleFor } from "@/lib/vat";
+import { WaitlistButton, useMyWaitlist } from "@/components/WaitlistButton";
 
 type Location = { id: string; label: string; flag: string | null };
 type ClassRow = {
@@ -46,6 +51,7 @@ type ClassRow = {
   endTime: string;
   coach: string | null;
   price: number;
+  seats?: { capacity: number; left: number | null; full: boolean } | null;
 };
 
 const fmt = (t?: string) => (t ? t.slice(0, 5) : "");
@@ -55,7 +61,7 @@ const toIso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.
 export default function BookClassPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"online" | "offline">("online");
-  const [consent, setConsent] = useState(false);
+  const [consent, setConsent] = useState(EMPTY_CONSENT);
   const [locations, setLocations] = useState<Location[]>([]);
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [location, setLocation] = useState("");
@@ -97,7 +103,11 @@ export default function BookClassPage() {
   );
   const endedCount = matching.length - available.length;
 
-  const selected = available.find((c) => c.id === classId && !bookedIds.has(c.id)) || null;
+  // Full classes can't be picked — unless a waitlist seat is being held for this student.
+  const waitlist = useMyWaitlist();
+  const waitEntry = (id: string) => waitlist.entries.find((w) => w.classId === id);
+  const isFull = (c: ClassRow) => Boolean(c.seats?.full) && waitEntry(c.id)?.status !== "offered";
+  const selected = available.find((c) => c.id === classId && !bookedIds.has(c.id) && !isFull(c)) || null;
 
   useEffect(() => {
     if (classId && !available.some((c) => c.id === classId)) setClassId("");
@@ -134,7 +144,7 @@ export default function BookClassPage() {
     : null;
   const datesValid = Boolean(startDate && endDate) && !dateError;
 
-  const canContinue = Boolean(consent && selected && datesValid);
+  const canContinue = Boolean(hasRequiredConsent(consent) && selected && datesValid);
   // What's still missing, so the disabled button explains itself.
   const missing = !selected
     ? "Pick a class to continue"
@@ -142,8 +152,8 @@ export default function BookClassPage() {
     ? "Choose your dates"
     : dateError
     ? "Fix the dates"
-    : !consent
-    ? "Accept the media consent"
+    : !hasRequiredConsent(consent)
+    ? "Accept the privacy & GDPR consent"
     : null;
 
   function goToPlans() {
@@ -164,6 +174,7 @@ export default function BookClassPage() {
       level: selected.level,
       classId: selected.id,
       baseAmount: selected.price || 0,
+      consent,
     });
     router.push("/plans");
   }
@@ -227,16 +238,31 @@ export default function BookClassPage() {
         >
           {available.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Classes">
-              {available.map((c) => (
-                <ClassCard
-                  key={c.id}
-                  c={c}
-                  active={c.id === classId && !bookedIds.has(c.id)}
-                  booked={bookedIds.has(c.id)}
-                  flag={locations.find((l) => l.label === c.location)?.flag}
-                  onSelect={() => setClassId(c.id)}
-                />
-              ))}
+              {available.map((c) => {
+                const full = !bookedIds.has(c.id) && isFull(c);
+                return (
+                  <div key={c.id} className="flex flex-col gap-2">
+                    <ClassCard
+                      c={c}
+                      active={c.id === classId && !bookedIds.has(c.id) && !full}
+                      booked={bookedIds.has(c.id)}
+                      full={full}
+                      held={waitEntry(c.id)?.status === "offered"}
+                      flag={locations.find((l) => l.label === c.location)?.flag}
+                      onSelect={() => setClassId(c.id)}
+                    />
+                    {full ? (
+                      <WaitlistButton
+                        type="class"
+                        classId={c.id}
+                        title={`${c.name} · ${fmt(c.startTime)}–${fmt(c.endTime)}`}
+                        entry={waitEntry(c.id)}
+                        onChange={waitlist.reload}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="flex flex-col items-center rounded-2xl border-[1.5px] border-dashed border-hairline bg-surface-muted/40 px-4 py-8 text-center">
@@ -325,10 +351,7 @@ export default function BookClassPage() {
             Your class runs at the fixed time shown on the class. The admin team confirms your enrolment within 24
             hours.
           </div>
-          <ConsentCheckbox checked={consent} onChange={setConsent} title="Media Consent Disclaimer">
-            By registering, you agree to share pictures and videos of the session(s) you attend.{" "}
-            <span className="font-bold text-danger">* Required to proceed.</span>
-          </ConsentCheckbox>
+          <ConsentChoices value={consent} onChange={setConsent} />
         </Section>
       </main>
 
@@ -342,6 +365,7 @@ export default function BookClassPage() {
                 <div className="truncate text-[12px] text-copy-dim">
                   {fmt(selected.startTime)}–{fmt(selected.endTime)} ·{" "}
                   <span className="font-semibold text-accent">SEK {(selected.price || 0).toLocaleString()}/mo</span>
+                  <VatTag type="class" className="ml-1" />
                   {missing ? ` · ${missing}` : ""}
                 </div>
               </>
@@ -458,28 +482,36 @@ function ClassCard({
   c,
   active,
   booked = false,
+  full = false,
+  held = false,
   flag,
   onSelect,
 }: {
   c: ClassRow;
   active: boolean;
   booked?: boolean;
+  full?: boolean;
+  held?: boolean;
   flag?: string | null;
   onSelect: () => void;
 }) {
+  const vatNote = vatPriceNote(vatRuleFor(useVatRules(), "class"));
+  const left = c.seats?.left;
   return (
     <button
       type="button"
       role="radio"
       aria-checked={active}
-      aria-disabled={booked}
-      disabled={booked}
-      title={booked ? "You've already booked this class — see My Portal" : undefined}
+      aria-disabled={booked || full}
+      disabled={booked || full}
+      title={booked ? "You've already booked this class — see My Portal" : full ? "This class is full — join the waitlist" : undefined}
       onClick={onSelect}
       className={cn(
         "relative flex flex-col rounded-2xl border-2 p-4 text-left transition-all duration-200",
         booked
           ? "cursor-not-allowed border-dashed border-ok/50 bg-surface opacity-75"
+          : full
+          ? "cursor-not-allowed border-dashed border-danger/40 bg-surface opacity-75"
           : active
             ? "border-accent bg-accent/[0.05] shadow-[0_12px_30px_rgba(235,57,54,0.18)]"
             : "border-hairline bg-surface hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[var(--shadow-md)]",
@@ -488,6 +520,18 @@ function ClassCard({
       {booked ? (
         <span className="absolute -top-2.5 left-4 rounded-full bg-ok px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
           ✓ Already booked
+        </span>
+      ) : full ? (
+        <span className="absolute -top-2.5 left-4 rounded-full bg-danger px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+          Fully booked
+        </span>
+      ) : held ? (
+        <span className="absolute -top-2.5 left-4 rounded-full bg-ok px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+          🎟️ Seat held for you
+        </span>
+      ) : left != null && left <= 5 ? (
+        <span className="absolute -top-2.5 left-4 rounded-full bg-warn px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+          Only {left} seat{left === 1 ? "" : "s"} left
         </span>
       ) : null}
       <div className="mb-3 flex items-start justify-between gap-2">
@@ -506,6 +550,7 @@ function ClassCard({
         >
           SEK {(c.price || 0).toLocaleString()}
           <span className="font-medium opacity-80">/mo</span>
+          {vatNote ? <span className="block text-right text-[9px] font-semibold opacity-80">{vatNote}</span> : null}
         </span>
       </div>
 
@@ -530,6 +575,12 @@ function ClassCard({
           <MapPin className="h-3.5 w-3.5" />
           {flag} {c.location}
         </span>
+        {c.seats && c.seats.capacity > 0 && left != null ? (
+          <span className={cn("inline-flex items-center gap-1", left === 0 ? "font-semibold text-danger" : "")}>
+            <UserRound className="h-3.5 w-3.5" />
+            {left}/{c.seats.capacity} seats left
+          </span>
+        ) : null}
         {/* Only shown when admin has assigned a coach to the class. */}
         {c.coach?.trim() ? (
           <span className="inline-flex items-center gap-1">

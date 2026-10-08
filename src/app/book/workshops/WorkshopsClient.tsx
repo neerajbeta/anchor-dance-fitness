@@ -9,6 +9,10 @@ import { Button } from "@/components/theme/Button";
 import { PageHeader } from "@/components/theme/states";
 import { type EventItem } from "@/lib/data";
 import { saveDraft } from "@/lib/bookingDraft";
+import { useVatRules } from "@/lib/useVatRules";
+import { vatPriceNote, vatRuleFor } from "@/lib/vat";
+import { WaitlistButton, useMyWaitlist, type MyWaitlistEntry } from "@/components/WaitlistButton";
+import { AskQuestionButton } from "@/components/AskQuestionButton";
 
 type Filters = { location: string; mode: "all" | "online" | "offline"; kind: "all" | "workshop" | "event" };
 
@@ -43,6 +47,7 @@ export function WorkshopsClient({
       .then((j) => setBookedIds(new Set(j.data?.eventIds ?? [])))
       .catch(() => {});
   }, []);
+  const waitlist = useMyWaitlist();
   const matches = (e: EventItem) =>
     (!filters.location || e.location === filters.location) &&
     (filters.mode === "all" || e.mode === filters.mode) &&
@@ -87,7 +92,13 @@ export function WorkshopsClient({
       ) : (
         <div className="mb-10 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
           {shownUpcoming.map((e) => (
-            <EventCard key={e.id} e={e} booked={bookedIds.has(e.id)} />
+            <EventCard
+              key={e.id}
+              e={e}
+              booked={bookedIds.has(e.id)}
+              waitEntry={waitlist.entries.find((w) => w.eventId === e.id)}
+              onWaitlistChange={waitlist.reload}
+            />
           ))}
         </div>
       )}
@@ -203,10 +214,21 @@ function Sep() {
   return <div className="mx-1 h-6 w-px bg-hairline" />;
 }
 
-function EventCard({ e, booked = false }: { e: EventItem; booked?: boolean }) {
+function EventCard({
+  e,
+  booked = false,
+  waitEntry,
+  onWaitlistChange,
+}: {
+  e: EventItem;
+  booked?: boolean;
+  waitEntry?: MyWaitlistEntry;
+  onWaitlistChange?: () => void;
+}) {
   const router = useRouter();
   const full = e.seatsLeft === 0 && !e.past;
   const accent = e.kind === "workshop" ? "text-warn" : "text-grape";
+  const vatNote = vatPriceNote(vatRuleFor(useVatRules(), e.kind));
   const badgeTone = e.kind === "workshop" ? "bg-warn" : "bg-grape";
 
   function bookNow() {
@@ -224,7 +246,8 @@ function EventCard({ e, booked = false }: { e: EventItem; booked?: boolean }) {
 
   return (
     <div
-      className={`group overflow-hidden rounded-[18px] border border-hairline bg-surface shadow-[var(--shadow-sm)] transition-all hover:-translate-y-1 hover:border-accent/40 hover:shadow-[var(--shadow-md)] ${
+      id={`event-${e.id}`}
+      className={`group scroll-mt-24 overflow-hidden rounded-[18px] border border-hairline bg-surface shadow-[var(--shadow-sm)] transition-all hover:-translate-y-1 hover:border-accent/40 hover:shadow-[var(--shadow-md)] target:ring-2 target:ring-accent ${
         e.past ? "opacity-80" : ""
       } ${full ? "opacity-70" : ""}`}
     >
@@ -265,6 +288,11 @@ function EventCard({ e, booked = false }: { e: EventItem; booked?: boolean }) {
           </Badge>
           <span className="text-xs text-copy-dim">📍 {e.location}</span>
           {!e.past && e.coach && <span className="text-xs text-copy-dim">{e.coach}</span>}
+          {!e.past && (
+            <span className="ml-auto">
+              <AskQuestionButton eventId={e.id} title={e.title} />
+            </span>
+          )}
         </div>
 
         {e.past ? (
@@ -276,12 +304,21 @@ function EventCard({ e, booked = false }: { e: EventItem; booked?: boolean }) {
               View in My Portal
             </Button>
           </div>
+        ) : full && waitEntry?.status === "offered" ? (
+          <div className="flex items-center justify-between gap-2">
+            <Badge tone="success">🎟️ A seat is held for you</Badge>
+            <div className="text-right">
+              <div className="text-base font-extrabold text-accent">SEK {e.price}</div>
+              {vatNote ? <div className="text-[10px] font-semibold text-copy-dim">{vatNote}</div> : null}
+              <Button size="sm" className="mt-2" onClick={bookNow}>
+                Book my seat →
+              </Button>
+            </div>
+          </div>
         ) : full ? (
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <Badge tone="danger">0 seats left</Badge>
-            <Button variant="secondary" size="sm" onClick={() => {}}>
-              + Join Waitlist
-            </Button>
+            <WaitlistButton type={e.kind} eventId={e.id} title={e.title} entry={waitEntry} onChange={onWaitlistChange} />
           </div>
         ) : (
           <div className="flex items-center justify-between">
@@ -293,6 +330,7 @@ function EventCard({ e, booked = false }: { e: EventItem; booked?: boolean }) {
             </div>
             <div className="text-right">
               <div className="text-base font-extrabold text-accent">SEK {e.price}</div>
+              {vatNote ? <div className="text-[10px] font-semibold text-copy-dim">{vatNote}</div> : null}
               <Button size="sm" className="mt-2" onClick={bookNow}>
                 Book Now →
               </Button>

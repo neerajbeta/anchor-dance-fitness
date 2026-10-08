@@ -13,6 +13,9 @@ import {
   ResultLayout,
   methodLabel,
   sek,
+  discountedPrice,
+  VatDetailRow,
+  InvoiceDetailRow,
 } from "@/components/payments/ResultParts";
 
 /** Studio Hire — payment confirmed, the slot is theirs. */
@@ -64,12 +67,14 @@ function StudioPaymentSuccess() {
             {slot.purpose && <DetailRow k="Purpose" v={slot.purpose} />}
             {booking.notes && <DetailRow k="Your notes" v={<span className="whitespace-pre-line">{booking.notes}</span>} />}
             {booking.discountCode && (
-              <DetailRow k={`Discount (${booking.discountCode})`} v={`− ${sek(booking.baseAmount - booking.amount)}`} />
+              <DetailRow k={`Discount (${booking.discountCode})`} v={`− ${sek(Math.max(0, booking.baseAmount - discountedPrice(check)))}`} />
             )}
           </>
         ) : null}
         <DetailRow k="Paid with" v={methodLabel(check.method)} />
+        <VatDetailRow check={check} />
         <DetailRow k="Amount paid" v={<span className="text-ok">✓ {sek(check.amount)}</span>} strong />
+        <InvoiceDetailRow check={check} />
       </DetailCard>
 
       <NextSteps

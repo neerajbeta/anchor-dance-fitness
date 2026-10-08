@@ -6,7 +6,9 @@ import { useEffect, useState } from "react";
 import { SessionStudentNav } from "@/components/theme/shells";
 import { StudioCalendar, type StudioBlockRange } from "@/components/StudioCalendar";
 import { LocationSelect } from "@/components/LocationSelect";
-import { PaymentMethodPicker, useCheckout } from "@/components/payments/Checkout";
+import { ConsentGate, PaymentMethodPicker, useCheckout } from "@/components/payments/Checkout";
+import { useVatRules } from "@/lib/useVatRules";
+import { applyVat, formatVatRate, vatRuleFor } from "@/lib/vat";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const todayIso = () => {
@@ -102,7 +104,10 @@ export default function BookStudioPage() {
       ? Math.min(price, applied.flatAmount)
       : Math.round((price * applied.percent) / 100)
     : 0;
-  const total = price - discountAmount;
+  // VAT per the admin VAT master — the same sum the server charges.
+  const vatRule = vatRuleFor(useVatRules(), "studio");
+  const vat = applyVat(price - discountAmount, vatRule);
+  const total = vat.total;
   const clash = startT !== "" && overlaps(taken, startT, hours * 60);
   const ready =
     chosenPurpose !== "" && food && name.trim() !== "" && email.trim() !== "" && hours > 0 && startT !== "" && !clash && rate !== null;
@@ -248,7 +253,11 @@ export default function BookStudioPage() {
                 <Row label="Start Time" value={startT || "—"} />
                 <Row label="End Time" value={endLabel} />
                 <Row label="Duration" value={`${hours} Hour${hours === 1 ? "" : "s"}`} />
-                <Row label="Estimated Price" value={`SEK ${price.toLocaleString()}`} accent />
+                <Row
+                  label={vatRule ? `Estimated Price (incl. ${formatVatRate(vatRule.rateBp)} VAT)` : "Estimated Price"}
+                  value={`SEK ${applyVat(price, vatRule).total.toLocaleString()}`}
+                  accent
+                />
                 {clash && (
                   <div className="mt-2 text-[12px] font-semibold text-danger">
                     ⚠️ This time overlaps an existing booking or blocked slot — pick another start
@@ -390,7 +399,11 @@ export default function BookStudioPage() {
                 {applied && (
                   <Row label={`Discount (${applied.code} · ${applied.type === "flat" ? `SEK ${applied.flatAmount}` : `${applied.percent}%`})`} value={`− SEK ${discountAmount.toLocaleString()}`} />
                 )}
-                <Row label="Tax (0%)" value="SEK 0" />
+                {vat.mode === "exclusive" ? (
+                  <Row label={`VAT (${formatVatRate(vat.rateBp)})`} value={`+ SEK ${vat.vat.toLocaleString()}`} />
+                ) : vat.mode === "inclusive" ? (
+                  <Row label={`Includes VAT (${formatVatRate(vat.rateBp)})`} value={`SEK ${vat.vat.toLocaleString()}`} />
+                ) : null}
                 <Row label="Total" value={`SEK ${total.toLocaleString()}`} accent bold />
               </div>
 
@@ -417,6 +430,8 @@ export default function BookStudioPage() {
 
               <PaymentMethodPicker checkout={checkout} />
 
+              <ConsentGate checkout={checkout} />
+
               {error && (
                 <div className="mb-3 rounded-lg border-[1.5px] border-danger/40 bg-danger/5 px-3 py-2 text-xs font-semibold text-danger">
                   {error}
@@ -425,7 +440,7 @@ export default function BookStudioPage() {
 
               <button
                 onClick={confirmBooking}
-                className={`btn btn-grape btn-block btn-lg ${ready && !checkout.inProgress && checkout.methodReady ? "" : "is-disabled"}`}
+                className={`btn btn-grape btn-block btn-lg ${ready && !checkout.inProgress && checkout.methodReady && checkout.consentReady ? "" : "is-disabled"}`}
               >
                 {checkout.busy
                   ? "Processing…"

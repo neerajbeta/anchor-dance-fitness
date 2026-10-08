@@ -7,7 +7,9 @@ import {
   markRegistrationPaid,
   markRegistrationPaymentCancelled,
   PAYMENT_CANCELLED_STATUS,
+  seatTargetOf,
 } from "@/lib/services";
+import { processWaitlist } from "@/lib/waitlist";
 import { sendBookingConfirmation } from "@/lib/email/notify";
 import { expireCheckoutSession, retrieveCheckoutSession } from "./stripe";
 import { getSwishPaymentStatus } from "./swish";
@@ -20,6 +22,11 @@ export type PaymentCheck = {
   state: PaymentState;
   method: "stripe" | "swish" | null;
   amount: number;
+  /** VAT the booking was sold with — shown on the receipt. */
+  vatAmount: number;
+  vatRateBp: number;
+  vatMode: string | null;
+  netAmount: number | null;
   /** Lets a result page send the customer to the right booking type's pages. */
   type: BookingType;
 };
@@ -46,10 +53,19 @@ export async function checkPayment(id: string, opts: { cancel?: boolean; origin?
     state,
     method,
     amount: row.amount,
+    vatAmount: row.vatAmount,
+    vatRateBp: row.vatRateBp,
+    vatMode: row.vatMode,
+    netAmount: row.netAmount,
     type: row.type,
   });
   const failed = async () => {
-    if (row.status !== PAYMENT_CANCELLED_STATUS) await markRegistrationPaymentCancelled(row.id);
+    if (row.status !== PAYMENT_CANCELLED_STATUS) {
+      await markRegistrationPaymentCancelled(row.id);
+      // The seat this checkout held is free again — offer it to the waitlist.
+      const target = seatTargetOf(row);
+      if (target) void processWaitlist(target, { origin: opts.origin });
+    }
     return result("failed");
   };
 

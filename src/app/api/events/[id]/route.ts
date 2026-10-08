@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/permissions";
 import { updateEvent, deleteEvent, DbNotConfiguredError } from "@/lib/services";
+import { processWaitlist } from "@/lib/waitlist";
+import { publicOrigin } from "@/lib/origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +14,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const patch = await req.json();
     const ev = await updateEvent(params.id, patch);
     if (!ev) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // More seats? Offer them to the waitlist.
+    if (patch.seatsTotal !== undefined) void processWaitlist({ kind: "event", id: params.id }, { origin: publicOrigin(req) });
     return NextResponse.json({ data: ev });
   } catch (err) {
     return handle(err);

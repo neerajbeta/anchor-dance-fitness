@@ -4,6 +4,9 @@ import { db, hasDb } from "@/lib/db/client";
 import { users, roles } from "@/lib/db/schema";
 import { getRolePermissionSlugs, getRoleBySlug, countActiveUsersInRole, getAdminUserById } from "@/lib/services";
 import { getSession } from "./api";
+import { getCachedActor, getInFlightActor, shareActorLookup } from "./actorCache";
+
+export { invalidateAdminActorCache } from "./actorCache";
 
 /**
  * Reusable RBAC layer for the admin-panel User Management module.
@@ -44,14 +47,33 @@ function demoSuperAdminActor(email: string, name: string): AdminActor {
   };
 }
 
-/** Looks up the full actor (DB row + permission set) for the current admin session, or null. */
+/**
+ * Looks up the full actor (DB row + permission set) for the current admin
+ * session, or null.
+ *
+ * The result is cached for a few seconds and concurrent lookups share one query
+ * (see lib/auth/actorCache) — an admin page fires many guarded API calls at
+ * once. Permission changes still apply straight away: the cache is dropped the
+ * moment roles, permissions or admin accounts are edited.
+ */
 export async function getCurrentAdminActor(): Promise<AdminActor | null> {
   const session = await getSession();
   if (!session?.email) return null;
   if (session.role !== "admin") return null;
   if (!hasDb || !db) return demoSuperAdminActor(session.email, session.name);
 
-  const [row] = await db
+  const key = session.email;
+  const cached = getCachedActor<AdminActor>(key);
+  if (cached.hit) return cached.actor;
+
+  return (
+    getInFlightActor<AdminActor>(key) ??
+    shareActorLookup<AdminActor>(key, () => resolveAdminActor(session.email, session.name))
+  );
+}
+
+async function resolveAdminActor(email: string, name: string): Promise<AdminActor | null> {
+  const [row] = await db!
     .select({
       id: users.id,
       email: users.email,
@@ -64,9 +86,9 @@ export async function getCurrentAdminActor(): Promise<AdminActor | null> {
     })
     .from(users)
     .leftJoin(roles, eq(users.roleId, roles.id))
-    .where(eq(users.email, session.email));
+    .where(eq(users.email, email));
 
-  if (!row) return demoSuperAdminActor(session.email, session.name); // e.g. demo fallback credentials
+  if (!row) return demoSuperAdminActor(email, name); // e.g. demo fallback credentials
   if (!row.roleId || !row.roleSlug) return null; // real account, but not yet assigned a role
   if (row.status === "inactive" || row.roleStatus === "inactive") return null;
 

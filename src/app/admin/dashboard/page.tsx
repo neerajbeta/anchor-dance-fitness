@@ -218,7 +218,9 @@ export default async function AdminDashboard({
         <div className="card">
           <div className="mb-4 flex items-center justify-between">
             <div className="card-title mb-0">⚠️ Payment Alerts</div>
-            <button className="btn btn-primary btn-sm">Send All Reminders</button>
+            <Link href="/admin/reminders" className="btn btn-primary btn-sm no-underline">
+              Send All Reminders
+            </Link>
           </div>
           {s.paymentAlerts.length === 0 ? (
             <EmptyRow text="No overdue payments 🎉" />

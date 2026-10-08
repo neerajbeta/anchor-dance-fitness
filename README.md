@@ -84,7 +84,7 @@ bundled mock data (the admin table shows a **● Sample data** badge; with a DB 
 
 1. Create a Supabase project (EU region for the doc's data-residency note).
 2. Copy `.env.example` → `.env.local` and fill in:
-   - `DATABASE_URL` — **Transaction pooler** string (port `6543`) for runtime queries.
+   - `DATABASE_URL` — **Session pooler** string (port `5432` on the `pooler.supabase.com` host) for runtime queries. Not the transaction pooler on `6543`: this app is a long-lived server, and on `6543` more than a handful of simultaneous queries stall instead of queueing, which leaves admin cards on "Loading…".
    - `DIRECT_URL` — **Direct** string (port `5432`) for migrations.
 3. Create the tables and seed:
 

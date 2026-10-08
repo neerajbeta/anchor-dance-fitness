@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePermissions } from "@/lib/usePermissions";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 
 type Status = "active" | "inactive";
 type Role = {
@@ -31,6 +32,7 @@ const MODULE_LABELS: Record<string, string> = {
   studio: "Studio Bookings",
   payments: "Payments",
   enquiries: "Enquiries",
+  customers: "Customers",
   announcements: "Announcements",
   settings: "Portal Settings",
 };
@@ -460,7 +462,25 @@ export function RolesManager() {
 
       {/* Permissions Matrix — all roles at a glance, read-only summary */}
       <div className="card">
-        <div className="card-title">🔒 Permissions Matrix — All Roles at a Glance</div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="card-title">🔒 Permissions Matrix — All Roles at a Glance</div>
+          <ExportExcelButton
+            rows={permissions}
+            filename="Role-permissions"
+            sheetName="Permissions"
+            notes={[`Permissions matrix — ${permissions.length} permissions across ${roles.length} roles`]}
+            columns={[
+              { label: "Module", value: (p) => MODULE_LABELS[p.module] ?? p.module },
+              { label: "Permission", value: (p) => p.name },
+              { label: "Slug", value: (p) => p.slug },
+              ...roles.map((r) => ({
+                label: r.name,
+                value: (p: Permission) =>
+                  (r.isSystemRole ? true : (rolePerms[r.id] ?? new Set<string>()).has(p.slug)) ? "Yes" : "No",
+              })),
+            ]}
+          />
+        </div>
         <div className="mb-3 flex flex-wrap items-center gap-4 text-[12px] text-slate">
           <span>✅ Full access</span>
           <span>🔶 Conditional / limited</span>

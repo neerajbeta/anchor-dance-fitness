@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { usePermissions } from "@/lib/usePermissions";
 import { Avatar } from "@/components/ui";
 import { LocationSelect } from "@/components/LocationSelect";
+import { downloadExcel } from "@/components/ExportExcelButton";
 
 type Status = "active" | "inactive";
 type Role = { id: string; name: string; slug: string; status: Status; isSystemRole: boolean };
@@ -25,13 +26,10 @@ type SortBy = "name" | "email" | "createdAt" | "lastLoginAt";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
-function toCsvCell(v: string) {
-  return `"${v.replace(/"/g, '""')}"`;
-}
-
 export function UsersManager() {
   const { can, me } = usePermissions();
   const [items, setItems] = useState<AdminUser[]>([]);
+  const [exporting, setExporting] = useState(false);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -267,37 +265,37 @@ export function UsersManager() {
     load();
   }
 
-  async function exportCsv() {
-    const params = new URLSearchParams({ page: "1", pageSize: "1000", sortBy, sortDir });
-    if (search.trim()) params.set("search", search.trim());
-    if (roleFilter) params.set("roleId", roleFilter);
-    if (statusFilter) params.set("status", statusFilter);
-    const j = await fetch(`/api/admin-users?${params}`).then((r) => r.json());
-    const rows: AdminUser[] = j.data ?? [];
-    const header = ["Name", "Email", "Role", "Location", "Status", "Last Login", "Created"];
-    const lines = [header.map(toCsvCell).join(",")];
-    for (const u of rows) {
-      lines.push(
-        [
-          u.name,
-          u.email,
-          u.roleName ?? "",
-          u.location ?? "",
-          u.status,
-          u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "Never",
-          new Date(u.createdAt).toLocaleDateString(),
-        ]
-          .map(toCsvCell)
-          .join(",")
-      );
+  // Exports every user the current filters match, not just the page on screen.
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ page: "1", pageSize: "1000", sortBy, sortDir });
+      if (search.trim()) params.set("search", search.trim());
+      if (roleFilter) params.set("roleId", roleFilter);
+      if (statusFilter) params.set("status", statusFilter);
+      const j = await fetch(`/api/admin-users?${params}`).then((r) => r.json());
+      const all: AdminUser[] = j.data ?? [];
+      await downloadExcel({
+        rows: all,
+        filename: "Admin-users",
+        sheetName: "Users",
+        notes: [`Admin users — ${all.length}${statusFilter ? ` · ${statusFilter}` : ""}${search.trim() ? ` · "${search.trim()}"` : ""}`],
+        columns: [
+          { label: "Name", value: (u) => u.name },
+          { label: "Email", value: (u) => u.email },
+          { label: "Role", value: (u) => u.roleName ?? "" },
+          { label: "Phone", value: (u) => u.phone ?? "" },
+          { label: "Location", value: (u) => u.location ?? "" },
+          { label: "Status", value: (u) => u.status },
+          { label: "Last login", value: (u) => (u.lastLoginAt ? u.lastLoginAt.slice(0, 10) : "Never") },
+          { label: "Created", value: (u) => u.createdAt.slice(0, 10) },
+        ],
+      });
+    } catch (err) {
+      console.error("[users export]", err);
+    } finally {
+      setExporting(false);
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `users-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -375,8 +373,8 @@ export function UsersManager() {
             ]}
             onChange={setStatusFilter}
           />
-          <button className="btn btn-ghost btn-sm ml-auto" onClick={exportCsv}>
-            📥 Export CSV
+          <button className="btn btn-ghost btn-sm ml-auto" onClick={exportExcel} disabled={exporting}>
+            {exporting ? "Preparing…" : "📊 Export Excel"}
           </button>
         </div>
       </div>

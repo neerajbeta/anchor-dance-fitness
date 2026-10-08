@@ -10,6 +10,10 @@ type Check = {
   state: "paid" | "pending" | "failed";
   method: "stripe" | "swish" | null;
   amount: number;
+  vatAmount?: number;
+  vatRateBp?: number;
+  vatMode?: string | null;
+  netAmount?: number | null;
   type: string;
 };
 

@@ -4,6 +4,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { saveLastBooking } from "@/lib/bookingDraft";
 import { paymentPageUrl } from "@/lib/payments/pages";
+import { EMPTY_CONSENT, hasRequiredConsent, type ConsentChoices as Choices } from "@/lib/consent";
+import { ConsentChoices } from "@/components/ConsentChoices";
+import { SavedVatLine } from "./Vat";
 
 export type PayMethod = "stripe" | "swish";
 
@@ -20,6 +23,10 @@ export type BookingRow = {
   plan: string;
   mode?: "online" | "offline" | null;
   amount: number;
+  vatAmount?: number;
+  vatRateBp?: number;
+  vatMode?: string | null;
+  netAmount?: number | null;
   discountCode?: string | null;
   notes?: string | null;
 };
@@ -40,6 +47,18 @@ export function useCheckout() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [swish, setSwish] = useState<SwishPending | null>(null);
+  // GDPR: asked once. Someone who already agreed to the current wording (or who
+  // ticked the box earlier in this booking) isn't asked again.
+  const [needsConsent, setNeedsConsent] = useState(false);
+  const [consent, setConsent] = useState<Choices>(EMPTY_CONSENT);
+
+  useEffect(() => {
+    fetch("/api/my-consent", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => setNeedsConsent(!j.data?.consented))
+      // Signed-out bookings, or an unreachable check — ask for consent.
+      .catch(() => setNeedsConsent(true));
+  }, []);
 
   useEffect(() => {
     fetch("/api/payments/methods")
@@ -67,13 +86,17 @@ export function useCheckout() {
       setError("Enter the mobile number connected to your Swish.");
       return;
     }
+    if (needsConsent && !hasRequiredConsent(consent)) {
+      setError("Please accept the consent for your contact and booking details to continue.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/payments/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ method, phone, booking }),
+        body: JSON.stringify({ method, phone, booking: { ...booking, consent } }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || `Request failed (${res.status})`);
@@ -93,6 +116,10 @@ export function useCheckout() {
         plan: row.plan,
         mode: row.mode ?? undefined,
         amount: row.amount,
+        vatAmount: row.vatAmount,
+        vatRateBp: row.vatRateBp,
+        vatMode: row.vatMode,
+        netAmount: row.netAmount,
         baseAmount,
         discountCode: row.discountCode,
         notes: row.notes,
@@ -170,7 +197,21 @@ export function useCheckout() {
     /** True while a payment is starting or waiting in Swish. */
     inProgress: busy || Boolean(swish),
     methodReady: !methods || methods[method],
+    needsConsent,
+    consent,
+    setConsent,
+    /** False while a required GDPR permission is still unticked. */
+    consentReady: !needsConsent || hasRequiredConsent(consent),
   };
+}
+
+/**
+ * The GDPR permissions. Render it next to the payment method — it disappears
+ * for anyone who has already agreed to the current wording.
+ */
+export function ConsentGate({ checkout }: { checkout: ReturnType<typeof useCheckout> }) {
+  if (!checkout.needsConsent) return null;
+  return <ConsentChoices value={checkout.consent} onChange={checkout.setConsent} />;
 }
 
 /** Card / Swish choice, plus the Swish mobile number when Swish is picked. */
@@ -282,6 +323,11 @@ function SwishWaiting({ pending, onCancel }: { pending: SwishPending; onCancel: 
             <span className="text-copy-dim">Amount</span>
             <span className="font-bold">SEK {pending.amount.toLocaleString()}</span>
           </div>
+          {pending.amount === pending.row.amount ? (
+            <div className="-mt-0.5 text-right">
+              <SavedVatLine rateBp={pending.row.vatRateBp} vatAmount={pending.row.vatAmount} mode={pending.row.vatMode} />
+            </div>
+          ) : null}
           <div className="flex justify-between py-0.5">
             <span className="text-copy-dim">To</span>
             <span>{pending.payeeAlias}</span>

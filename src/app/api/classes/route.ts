@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/permissions";
-import { listClasses, createClass, DbNotConfiguredError } from "@/lib/services";
+import { listClassesWithSeats, createClass, DbNotConfiguredError } from "@/lib/services";
+import { sweepWaitlistsSoon } from "@/lib/waitlist";
+import { syncClassMeeting } from "@/lib/zoom";
+import { publicOrigin } from "@/lib/origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Public: booking forms need the class list to auto-fill times.
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    return NextResponse.json({ data: await listClasses() });
+    // Seats may have freed up (abandoned checkouts, expired offers) — let the waitlist know.
+    sweepWaitlistsSoon(publicOrigin(req));
+    return NextResponse.json({ data: await listClassesWithSeats() });
   } catch (err) {
     if (err instanceof DbNotConfiguredError) return NextResponse.json({ data: [] });
     console.error("[api/classes]", err);
@@ -46,6 +51,8 @@ export async function POST(req: NextRequest) {
       price: Number(b.price) || 0,
       capacity: Number(b.capacity) || 20,
     });
+    // Online class + Zoom connected → its meeting is created now (never blocks saving).
+    if (row.mode === "online") await syncClassMeeting(row.id, "created");
     return NextResponse.json({ data: row }, { status: 201 });
   } catch (err) {
     if (err instanceof DbNotConfiguredError)

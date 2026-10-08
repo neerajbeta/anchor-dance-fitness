@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  assertCustomerCanBook,
+  assertSeatAvailable,
+  CustomerBlacklistedError,
+  SeatsFullError,
+  validPromotionId,
+  PROMO_COOKIE,
+  getConsentStatus,
+  recordConsent,
   assertNotDuplicateBooking,
   attachPaymentRef,
   createRegistration,
@@ -14,6 +22,7 @@ import {
 import { paymentPageUrl } from "@/lib/payments/pages";
 import { publicOrigin } from "@/lib/origin";
 import { isStudioLocation, STUDIO_LOCATION_ERROR } from "@/lib/studioLocations";
+import { CONSENT_VERSION, hasRequiredConsent, readConsentChoices } from "@/lib/consent";
 import { sendBookingConfirmation } from "@/lib/email/notify";
 import { getUserSession } from "@/lib/auth/userActions";
 import { createCheckoutSession, isStripeConfigured, StripeApiError, StripeNotConfiguredError } from "@/lib/payments/stripe";
@@ -110,6 +119,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Blacklisted customers can't book online.
+    await assertCustomerCanBook(String(booking.email));
+
+    // GDPR: the required permission must be given against the current wording
+    // before we take a booking. Someone who agreed earlier isn't asked again;
+    // the optional photo / video / promotional permissions are stored as ticked.
+    const consentStatus = await getConsentStatus(String(booking.email), CONSENT_VERSION).catch(() => null);
+    const consentChoices = readConsentChoices(booking.consent);
+    const consentGiven = hasRequiredConsent(consentChoices) || Boolean(consentStatus?.consented);
+    if (!consentGiven) {
+      return NextResponse.json(
+        { error: "Please accept the consent for your contact and booking details to continue.", needsConsent: true },
+        { status: 400 }
+      );
+    }
+
     // One live booking per person per class / workshop / event.
     await assertNotDuplicateBooking({
       email: String(booking.email),
@@ -117,6 +142,14 @@ export async function POST(req: NextRequest) {
       classId: booking.classId as string | undefined,
       eventId: booking.eventId as string | undefined,
       detail: booking.detail as string | undefined,
+    });
+
+    // No overbooking: a full class / workshop / event sends them to the waitlist.
+    await assertSeatAvailable({
+      type: String(booking.type),
+      classId: booking.classId as string | undefined,
+      eventId: booking.eventId as string | undefined,
+      email: String(booking.email),
     });
 
     // The price always comes from the database — a changed baseAmount in the
@@ -129,12 +162,21 @@ export async function POST(req: NextRequest) {
       eventId: booking.eventId as string | undefined,
     });
 
-    // Unpaid until the gateway says otherwise.
+    // Unpaid until the gateway says otherwise. Credited to the promotion link
+    // they arrived through, if any.
     const row = await createRegistration({
       ...(booking as unknown as RegistrationInput),
       baseAmount,
       paid: "pending",
+      promotionId: await validPromotionId(req.cookies.get(PROMO_COOKIE)?.value).catch(() => null),
     });
+
+    // Their student record exists now — store the permissions they just ticked.
+    if (hasRequiredConsent(consentChoices) && !consentStatus?.consented) {
+      await recordConsent(String(booking.email), CONSENT_VERSION, consentChoices).catch((err) =>
+        console.error("[consent]", err)
+      );
+    }
 
     // Fully discounted / free booking — nothing to charge.
     if (row.amount <= 0) {
@@ -187,6 +229,12 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof DuplicateBookingError) {
       return NextResponse.json({ error: err.message, existingId: err.existingId }, { status: 409 });
+    }
+    if (err instanceof SeatsFullError) {
+      return NextResponse.json({ error: err.message, full: true }, { status: 409 });
+    }
+    if (err instanceof CustomerBlacklistedError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
     }
     if (err instanceof PriceError) {
       return NextResponse.json({ error: err.message }, { status: 400 });

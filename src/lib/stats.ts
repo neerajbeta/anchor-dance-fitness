@@ -2,6 +2,7 @@ import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { db, hasDb } from "@/lib/db/client";
 import { users, registrations, events, classes as classesTable } from "@/lib/db/schema";
 import type { Registration } from "@/lib/data";
+import { withLiveEventSeats } from "@/lib/services";
 
 async function count(query: Promise<{ n: number }[]>): Promise<number> {
   const rows = await query;
@@ -93,7 +94,7 @@ export async function getDashboardStats(location?: string): Promise<DashboardSta
     const today = new Date();
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    const [allRegs, studentRows, allEvents, allClasses] = await Promise.all([
+    const [allRegs, studentRows, storedEvents, allClasses] = await Promise.all([
       db.select().from(registrations).where(locFilter).orderBy(desc(registrations.createdAt)),
       db.select({ createdAt: users.createdAt }).from(users).where(eq(users.role, "student")),
       db
@@ -110,6 +111,8 @@ export async function getDashboardStats(location?: string): Promise<DashboardSta
         ),
     ]);
     const totalStudents = studentRows.length;
+    // Real seats left, counting live bookings (the stored figure never goes down).
+    const allEvents = await withLiveEventSeats(storedEvents);
 
     const classes = allRegs.filter((r) => r.type === "class").length;
     const studio = allRegs.filter((r) => r.type === "studio").length;

@@ -10,7 +10,11 @@ export type EmailTemplateKey =
   | "booking_workshop"
   | "booking_event"
   | "booking_studio"
-  | "admin_booking";
+  | "admin_booking"
+  | "waitlist_seat"
+  | "bulk_message"
+  | "invoice"
+  | "payment_reminder";
 
 export type EmailTemplateContent = {
   subject: string;
@@ -53,10 +57,14 @@ const BOOKING_VARS: EmailVariable[] = [
   { name: "location", label: "Location", sample: "Stockholm" },
   { name: "mode", label: "Online / In-Person", sample: "In-Person" },
   { name: "amount", label: "Amount paid", sample: "SEK 1 800" },
+  { name: "vat", label: "VAT", sample: "SEK 360 (25%, included)" },
   { name: "payment_status", label: "Payment status", sample: "Paid" },
   { name: "payment_method", label: "Payment method", sample: "Swish" },
   { name: "discount_code", label: "Discount code", sample: "WELCOME10" },
   { name: "notes", label: "Customer notes", sample: "First time — please share the parking info." },
+  { name: "invoice_number", label: "Invoice number (paid bookings — PDF attached)", sample: "INV-2026-0012" },
+  { name: "zoom_link", label: "Zoom join link (online classes)", sample: "https://us06web.zoom.us/j/81234567890?pwd=abc123" },
+  { name: "zoom_password", label: "Zoom passcode (online classes)", sample: "482913" },
   {
     name: "booking_details",
     label: "Booking details table",
@@ -195,6 +203,118 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       ].join("\n\n"),
       buttonLabel: "Open in admin",
       buttonUrl: "{{admin_url}}",
+      enabled: true,
+    },
+  },
+  {
+    key: "waitlist_seat",
+    name: "Waitlist — seat available",
+    icon: "🎟️",
+    trigger: "When a seat opens up in a full class, workshop or event and it's this person's turn on the waitlist",
+    audience: "customer",
+    variables: [
+      ...COMMON_VARS,
+      { name: "booking_type", label: "Class / Workshop / Event", sample: "Workshop" },
+      { name: "title", label: "What they waited for", sample: "Bollywood Fusion Masterclass" },
+      { name: "dates", label: "Date / schedule", sample: "Sat 10 Oct 2026 · 11:00–13:00" },
+      { name: "location", label: "Location", sample: "Stockholm" },
+      { name: "book_url", label: "Booking link", sample: "https://anchordancefitness.com/book/workshops" },
+      { name: "expires", label: "Seat held until", sample: "Sun 11 Oct, 11:00" },
+      { name: "hold_hours", label: "Hours the seat is held", sample: "24" },
+    ],
+    defaults: {
+      subject: "A seat just opened up — {{title}} 🎟️",
+      heading: "Good news, {{first_name}}!",
+      body: [
+        "Hi {{first_name}},",
+        "A seat has opened up in **{{title}}** and you're next on the waitlist.",
+        "- {{booking_type}}: {{title}}\n- When: {{dates}}\n- Location: {{location}}",
+        "We're holding the seat for you for **{{hold_hours}} hours** (until {{expires}}). After that it goes to the next person in line.",
+      ].join("\n\n"),
+      buttonLabel: "Book my seat",
+      buttonUrl: "{{book_url}}",
+      enabled: true,
+    },
+  },
+  {
+    key: "bulk_message",
+    name: "Bulk message / announcement",
+    icon: "📣",
+    trigger: "When an admin sends a message from Bulk Messages (holiday closure, new batch launch…)",
+    audience: "customer",
+    variables: [
+      ...COMMON_VARS,
+      { name: "subject", label: "Subject written by the admin", sample: "Studio closed on Midsummer's Eve" },
+      {
+        name: "message",
+        label: "Message written by the admin",
+        sample: "Our Stockholm studio is closed on **Friday 19 June** for Midsummer.\n\nClasses restart on Monday 22 June as usual. Glad midsommar! 🌼",
+      },
+    ],
+    defaults: {
+      subject: "{{subject}}",
+      heading: "{{subject}}",
+      body: ["Hi {{first_name}},", "{{message}}", "— The {{site_name}} team"].join("\n\n"),
+      buttonLabel: "Open My Portal",
+      buttonUrl: "{{portal_url}}",
+      enabled: true,
+    },
+  },
+  {
+    key: "invoice",
+    name: "Invoice",
+    icon: "🧾",
+    trigger: "When an admin presses \"Email invoice\" (the invoice PDF is attached). Paid bookings also get it attached to their confirmation email.",
+    audience: "customer",
+    variables: [
+      ...COMMON_VARS,
+      { name: "invoice_number", label: "Invoice number", sample: "INV-2026-0012" },
+      { name: "invoice_date", label: "Invoice date", sample: "21 September 2026" },
+      { name: "booking_id", label: "Booking ID", sample: "AF-0124" },
+      { name: "title", label: "What was bought", sample: "Bollywood Beginners · 18:00–19:00" },
+      { name: "amount", label: "Total paid", sample: "SEK 1 145" },
+    ],
+    defaults: {
+      subject: "Your invoice {{invoice_number}} from {{site_name}}",
+      heading: "Here's your invoice",
+      body: [
+        "Hi {{first_name}},",
+        "Please find your invoice **{{invoice_number}}** attached.",
+        "- Booking: {{title}} ({{booking_id}})\n- Total paid: {{amount}}\n- Invoice date: {{invoice_date}}",
+        "You can also download it any time from My Portal.",
+      ].join("\n\n"),
+      buttonLabel: "Open My Portal",
+      buttonUrl: "{{portal_url}}",
+      enabled: true,
+    },
+  },
+  {
+    key: "payment_reminder",
+    name: "Payment reminder",
+    icon: "🔔",
+    trigger: "For an unpaid booking — up to 3 reminders (automatic on the schedule in Payment Reminders, or sent by an admin)",
+    audience: "customer",
+    variables: [
+      ...COMMON_VARS,
+      { name: "booking_id", label: "Booking ID", sample: "AF-0124" },
+      { name: "title", label: "What was booked", sample: "Bollywood Beginners · 18:00–19:00" },
+      { name: "dates", label: "Date / period", sample: "1 Oct 2026 – 31 Dec 2026" },
+      { name: "amount", label: "Amount due", sample: "SEK 1 200" },
+      { name: "days_unpaid", label: "Days since booking", sample: "6" },
+      { name: "reminder_number", label: "Which reminder", sample: "2 of 3" },
+    ],
+    defaults: {
+      subject: "Reminder: payment due for {{title}} ({{amount}})",
+      heading: "A friendly payment reminder",
+      body: [
+        "Hi {{first_name}},",
+        "We haven't received payment for your booking yet:",
+        "- Booking: {{title}} ({{booking_id}})\n- Dates: {{dates}}\n- Amount due: **{{amount}}**",
+        "You can pay at the studio or reply to this email and we'll send you a payment link. If you've already paid, thank you — please ignore this message.",
+        "(Reminder {{reminder_number}})",
+      ].join("\n\n"),
+      buttonLabel: "Open My Portal",
+      buttonUrl: "{{portal_url}}",
       enabled: true,
     },
   },

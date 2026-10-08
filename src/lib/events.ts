@@ -1,6 +1,8 @@
 import { db, hasDb } from "@/lib/db/client";
 import { events } from "@/lib/db/schema";
 import { EVENTS, PAST_EVENTS, type EventItem } from "@/lib/data";
+import { withLiveEventSeats } from "@/lib/services";
+import { sweepWaitlistsSoon } from "@/lib/waitlist";
 
 function gradientFor(kind: string) {
   return kind === "workshop"
@@ -59,7 +61,9 @@ export type EventsResult = {
 export async function getEvents(): Promise<EventsResult> {
   if (hasDb && db) {
     try {
-      const rows = await db.select().from(events);
+      // Real seats left (live bookings + waitlist holds), not the stored figure.
+      const rows = await withLiveEventSeats(await db.select().from(events));
+      sweepWaitlistsSoon();
       const items = rows.map(toItem);
       return {
         upcoming: items.filter((e) => !e.past),

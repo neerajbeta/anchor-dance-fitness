@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { formatVatRate } from "@/lib/vat";
 import { useEffect, useState } from "react";
 import { StudentShell } from "@/components/theme/shells";
 import { Badge } from "@/components/theme/Card";
 import { LinkButton } from "@/components/theme/LinkButton";
+import { ZoomClassesPanel } from "@/components/ZoomClassesPanel";
+import { PrivacyConsentCard } from "@/components/PrivacyConsentCard";
 
 type AnnouncementTone = "info" | "warning" | "urgent";
 type Announcement = {
@@ -40,6 +43,10 @@ export type PortalBooking = {
   status: string;
   statusTone: string;
   amount: number;
+  /** VAT the booking was sold with (0 / null mode = no VAT). */
+  vatRateBp?: number;
+  vatMode?: string | null;
+  vatAmount?: number;
   discountCode: string | null;
   bookedOn: string | null;
   notes?: string | null;
@@ -111,6 +118,9 @@ export function PortalClient({
       {/* Announcements */}
       <AnnouncementsPanel announcements={announcements} />
 
+      {/* Zoom links for booked online classes (hidden when there are none) */}
+      <ZoomClassesPanel />
+
       {/* Three columns */}
       <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Section title="💃 My Classes">
@@ -166,6 +176,9 @@ export function PortalClient({
 
       {/* Payments & receipts */}
       <PaymentsPanel bookings={bookings} />
+
+      {/* GDPR: what they agreed to, and withdrawing the photo / video part */}
+      <PrivacyConsentCard />
     </StudentShell>
   );
 }
@@ -394,6 +407,15 @@ function PortalHero({
             <HeroAction href="/book/workshops" icon="🎭" label="Workshop" />
             <HeroAction href="/book/studio" icon="🏛️" label="Studio" />
           </div>
+          {/* Plain link (not next/link) so the browser downloads the .ics file. */}
+          <a
+            href="/api/my-calendar"
+            download
+            className="mt-2 flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.11] py-2.5 text-[12px] font-semibold text-white/90 transition hover:border-accent/60 hover:bg-accent/20 dark:border-white/[0.14] dark:bg-white/[0.09]"
+            title="Your classes, workshops, events, studio bookings and studio holidays — add it to Google, Apple or Outlook calendar"
+          >
+            📅 Download my calendar
+          </a>
         </div>
       </div>
     </div>
@@ -703,9 +725,24 @@ function ReceiptRow({ b, cancelled }: { b: PortalBooking; cancelled: boolean }) 
         <div className={`text-[14px] font-extrabold text-copy ${cancelled ? "line-through" : ""}`}>
           SEK {b.amount.toLocaleString()}
         </div>
+        {b.vatMode && b.vatAmount ? (
+          <div className="text-[10px] text-copy-dim">
+            incl. VAT {formatVatRate(b.vatRateBp ?? 0)} · SEK{" "}
+            {b.vatAmount.toLocaleString()}
+          </div>
+        ) : null}
         <div className="mt-1">
           <Badge tone={pay.tone}>{pay.label}</Badge>
         </div>
+        {b.paid === "paid" && b.amount > 0 && !cancelled ? (
+          <a
+            href={`/api/invoices/${encodeURIComponent(b.id)}?download=1`}
+            className="mt-1 inline-block text-[11px] font-semibold text-accent hover:underline"
+            title="Download the invoice (PDF)"
+          >
+            🧾 Invoice PDF
+          </a>
+        ) : null}
       </div>
     </div>
   );
@@ -801,7 +838,16 @@ function StudioBookingCard({ booking: b }: { booking: PortalBooking }) {
       <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3">
         <Badge tone={STATUS_TONE[b.statusTone] ?? "neutral"}>{b.status}</Badge>
         {pay && !cancelled ? <Badge tone={pay.tone}>{pay.label}</Badge> : null}
-        {b.amount > 0 ? <span className="ml-auto text-[13px] font-bold text-copy">SEK {b.amount.toLocaleString()}</span> : null}
+        {b.amount > 0 ? (
+          <span className="ml-auto text-right">
+            <span className="block text-[13px] font-bold text-copy">SEK {b.amount.toLocaleString()}</span>
+            {b.vatMode && b.vatAmount ? (
+              <span className="block text-[10px] text-copy-dim">
+                incl. VAT {formatVatRate(b.vatRateBp ?? 0)} · SEK {b.vatAmount.toLocaleString()}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
       </div>
     </div>
   );

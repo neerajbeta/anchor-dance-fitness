@@ -44,6 +44,8 @@ const GROUPS: { label: string; color: string; items: [string, string][] }[] = [
 export function ScreenSwitcher() {
   const [open, setOpen] = useState(false);
   const path = usePathname();
+  // Developer shortcut — never shown on the public website.
+  if (path === "/" || path === "/schedule") return null;
 
   return (
     <>

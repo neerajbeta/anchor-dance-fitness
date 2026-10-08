@@ -96,6 +96,8 @@ INSERT INTO permissions (name, slug, module, description) VALUES
   ('View Payments', 'payments.view', 'payments', 'View payments and payment status.'),
   ('View Enquiries', 'enquiries.view', 'enquiries', 'View demo/enquiry leads.'),
   ('Edit Enquiries', 'enquiries.edit', 'enquiries', 'Update enquiry status.'),
+  ('View Customers', 'customers.view', 'customers', 'View customers, their status (paused, dropped, blacklisted, unpaid) and history.'),
+  ('Edit Customers', 'customers.edit', 'customers', 'Pause, drop, resume or blacklist a customer.'),
   ('View Announcements', 'announcements.view', 'announcements', 'View admin-managed announcements.'),
   ('Create Announcements', 'announcements.create', 'announcements', 'Post new announcements.'),
   ('Edit Announcements', 'announcements.edit', 'announcements', 'Edit announcements.'),
@@ -119,7 +121,7 @@ SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
 WHERE r.slug = 'admin'
   AND (
     p.slug IN ('dashboard.view','reports.view','users.view','users.create','users.edit','users.manage_roles','roles.view')
-    OR p.module IN ('classes','categories','levels','locations','discounts','plans','events','book_on_behalf','studio','payments','enquiries','announcements','settings')
+    OR p.module IN ('classes','categories','levels','locations','discounts','plans','events','book_on_behalf','studio','payments','enquiries','customers','announcements','settings')
   )
   AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
 
@@ -129,8 +131,8 @@ SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
 WHERE r.slug = 'manager'
   AND (
     p.slug IN ('dashboard.view','reports.view','users.view','users.edit','book_on_behalf.view','book_on_behalf.create')
-    OR (p.module IN ('classes','categories','levels','locations','discounts','plans','events','studio','enquiries','announcements') AND p.slug LIKE '%.view')
-    OR (p.module IN ('classes','categories','levels','locations','discounts','plans','events','studio','enquiries','announcements') AND p.slug LIKE '%.edit')
+    OR (p.module IN ('classes','categories','levels','locations','discounts','plans','events','studio','enquiries','customers','announcements') AND p.slug LIKE '%.view')
+    OR (p.module IN ('classes','categories','levels','locations','discounts','plans','events','studio','enquiries','customers','announcements') AND p.slug LIKE '%.edit')
     OR p.slug IN ('payments.view','settings.view')
   )
   AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);

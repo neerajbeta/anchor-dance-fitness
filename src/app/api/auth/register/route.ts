@@ -3,6 +3,7 @@ import { publicOrigin } from "@/lib/origin";
 import { createSessionToken, USER_SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth/session";
 import { registerStudent, DbNotConfiguredError, EmailTakenError } from "@/lib/services";
 import { sendWelcomeEmail } from "@/lib/email/notify";
+import { CONSENT_VERSION, hasRequiredConsent, readConsentChoices } from "@/lib/consent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,18 @@ export async function POST(req: NextRequest) {
     if (!b?.password || String(b.password).length < 6) {
       return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
     }
+    // GDPR: no account without the required consent. Photos, videos and
+    // promotional use are optional and stored exactly as ticked.
+    const consentChoices = readConsentChoices(b?.consent);
+    if (!hasRequiredConsent(consentChoices)) {
+      return NextResponse.json(
+        { error: "Please accept the consent for your contact and booking details to continue." },
+        { status: 400 }
+      );
+    }
     const user = await registerStudent({
+      consentVersion: CONSENT_VERSION,
+      consentChoices,
       name: b.name,
       email: b.email,
       password: b.password,

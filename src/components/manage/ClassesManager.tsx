@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { WEEKDAYS, countSessions, parseDays } from "@/lib/classSchedule";
 import { DatePicker } from "@/components/theme/DatePicker";
+import { ZoomClassControls, type ZoomClassInfo } from "./ZoomClassControls";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 
 type Location = { id: string; label: string };
 type Category = { id: string; name: string };
@@ -51,6 +53,20 @@ export function ClassesManager() {
   const [endDate, setEndDate] = useState("");
   const [singleDate, setSingleDate] = useState("");
 
+  // Zoom status of online classes (admin-only endpoint; the public class list never carries links).
+  const [zoom, setZoom] = useState<{ configured: boolean; byId: Record<string, ZoomClassInfo> }>({ configured: false, byId: {} });
+  const loadZoom = () =>
+    fetch("/api/zoom", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) =>
+        j.data &&
+        setZoom({
+          configured: j.data.configured,
+          byId: Object.fromEntries((j.data.classes as ZoomClassInfo[]).map((z) => [z.id, z])),
+        })
+      )
+      .catch(() => {});
+
   async function load() {
     const [c, l, cat, lvl] = await Promise.all([
       fetch("/api/classes").then((r) => r.json()),
@@ -58,6 +74,7 @@ export function ClassesManager() {
       fetch("/api/categories").then((r) => r.json()),
       fetch("/api/levels").then((r) => r.json()),
     ]);
+    loadZoom();
     setClasses(c.data ?? []);
     setLocations(l.data ?? []);
     setCategories(cat.data ?? []);
@@ -199,7 +216,29 @@ export function ClassesManager() {
 
   return (
     <div className="card">
-      <div className="card-title">💃 All Classes</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="card-title">💃 All Classes</div>
+        <ExportExcelButton
+          rows={classes}
+          filename="Classes"
+          notes={[`All classes — ${classes.length}`]}
+          columns={[
+            { label: "Name", value: (c) => c.name },
+            { label: "Category", value: (c) => c.category },
+            { label: "Level", value: (c) => c.level },
+            { label: "Location", value: (c) => c.location },
+            { label: "Mode", value: (c) => (c.mode === "online" ? "Online" : "In-person") },
+            { label: "Days", value: (c) => c.days ?? "" },
+            { label: "Start date", value: (c) => c.startDate ?? "" },
+            { label: "End date", value: (c) => c.endDate ?? "" },
+            { label: "Start time", value: (c) => fmt(c.startTime) },
+            { label: "End time", value: (c) => fmt(c.endTime) },
+            { label: "Coach", value: (c) => c.coach ?? "" },
+            { label: "Price (SEK/month)", value: (c) => c.price },
+            { label: "Capacity", value: (c) => c.capacity },
+          ]}
+        />
+      </div>
 
       <div className="mb-4 flex flex-col gap-2">
         {!loading && classes.length === 0 && (
@@ -213,7 +252,7 @@ export function ClassesManager() {
             key={c.id}
             className="flex items-center justify-between rounded-lg border-[1.5px] border-line bg-white px-3.5 py-2.5"
           >
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="text-[13px] font-bold text-ink">{c.name}</div>
               <div className="text-[11px] text-muted">
                 {c.category} · {c.level} · {c.location} · {c.mode === "online" ? "💻" : "🏃"}
@@ -231,6 +270,7 @@ export function ClassesManager() {
               ) : c.startDate ? (
                 <div className="text-[11px] text-muted">📅 {c.startDate} · One-off</div>
               ) : null}
+              {c.mode === "online" && <ZoomClassControls classId={c.id} info={zoom.byId[c.id]} configured={zoom.configured} onChange={loadZoom} />}
             </div>
             <div className="flex gap-2">
               <button className="btn btn-ghost btn-sm" onClick={() => startEdit(c)}>

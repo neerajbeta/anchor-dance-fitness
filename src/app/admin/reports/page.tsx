@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { Avatar, SectionHead, toneClass } from "@/components/ui";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 import { CategoryDonutChart } from "@/components/charts/CategoryDonutChart";
 import { LocationBarChart } from "@/components/charts/LocationBarChart";
 import { HorizontalBarChart } from "@/components/charts/HorizontalBarChart";
@@ -274,7 +275,28 @@ export default function ReportsPage() {
 
           {/* Detail table — filtered registrations across every type */}
           <div className="card">
-            <div className="card-title">📋 Registrations (filtered)</div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="card-title">📋 Registrations (filtered)</div>
+              <ExportExcelButton
+                rows={report.rows}
+                filename="Report-registrations"
+                sheetName="Registrations"
+                notes={[`Reports — ${month || "all time"}${location ? ` · ${location}` : ""} · ${report.rows.length} registrations`]}
+                columns={[
+                  { label: "Booking ID", value: (r) => r.id },
+                  { label: "Name", value: (r) => r.name },
+                  { label: "Email", value: (r) => r.email },
+                  { label: "Location", value: (r) => r.location },
+                  { label: "Type", value: (r) => r.type },
+                  { label: "Detail", value: (r) => r.detail },
+                  { label: "Category", value: (r) => r.category ?? "" },
+                  { label: "Plan", value: (r) => r.plan },
+                  { label: "Amount (SEK)", value: (r) => r.amount ?? 0 },
+                  { label: "Payment", value: (r) => r.paid },
+                  { label: "Status", value: (r) => r.status },
+                ]}
+              />
+            </div>
             {report.rows.length === 0 ? (
               <div className="rounded-lg border-[1.5px] border-dashed border-line bg-cream/40 py-10 text-center text-[13px] text-muted">
                 No registrations match this filter.

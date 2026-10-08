@@ -1,10 +1,13 @@
 import { Badge } from "@/components/theme/Card";
 import { LinkButton } from "@/components/theme/LinkButton";
 import type { LastBooking } from "@/lib/bookingDraft";
+import { formatVatRate } from "@/lib/vat";
 
 /** Receipt card shown on /confirmation. */
 export function BookingReceipt({ booking, method }: { booking: LastBooking; method?: "stripe" | "swish" | null }) {
-  const savings = booking.baseAmount - booking.amount;
+  // Discount is measured before any VAT added on top.
+  const discounted = booking.vatMode === "exclusive" ? booking.netAmount ?? booking.amount : booking.amount;
+  const savings = Math.max(0, booking.baseAmount - discounted);
   return (
     <>
       <div className="my-5 rounded-[18px] border border-hairline bg-surface p-5 shadow-[var(--shadow-sm)]">
@@ -30,6 +33,12 @@ export function BookingReceipt({ booking, method }: { booking: LastBooking; meth
             <span>− SEK {savings.toLocaleString()}</span>
           </div>
         )}
+        {booking.vatMode && booking.vatAmount ? (
+          <Row
+            k={`${booking.vatMode === "exclusive" ? "VAT" : "Includes VAT"} (${formatVatRate(booking.vatRateBp ?? 0)})`}
+            v={`${booking.vatMode === "exclusive" ? "+ " : ""}SEK ${booking.vatAmount.toLocaleString()}`}
+          />
+        ) : null}
         <div className="flex justify-between py-1.5 text-sm font-bold text-copy">
           <span>Amount Paid</span>
           <span className="text-ok">✓ SEK {booking.amount.toLocaleString()}</span>

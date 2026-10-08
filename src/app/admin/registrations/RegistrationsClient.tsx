@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { Avatar, SectionHead, toneClass } from "@/components/ui";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 import { type BookingType, type Registration } from "@/lib/data";
 
 const TYPE_BADGE: Record<BookingType, { label: string; tone: string }> = {
@@ -67,7 +68,30 @@ export function RegistrationsClient({
         right={
           <div className="flex items-center gap-2">
             <SourceBadge source={source} />
-            <button className="btn btn-ghost btn-sm">📥 Export All</button>
+            <ExportExcelButton
+              rows={filtered}
+              filename="Registrations"
+              notes={[`All Registrations — ${filtered.length} of ${rows.length} bookings`]}
+              columns={[
+                { label: "Booking ID", value: (r) => r.id },
+                { label: "Name", value: (r) => r.name },
+                { label: "Email", value: (r) => r.email },
+                { label: "Age", value: (r) => r.age || "" },
+                { label: "Type", value: (r) => TYPE_BADGE[r.type]?.label.replace(/^\S+\s/, "") ?? r.type },
+                { label: "Detail", value: (r) => r.detail },
+                { label: "Category", value: (r) => r.category ?? "" },
+                { label: "Level", value: (r) => r.level ?? "" },
+                { label: "Mode", value: (r) => (r.mode === "online" ? "Online" : r.mode === "offline" ? "In-person" : "") },
+                { label: "Location", value: (r) => r.location },
+                { label: "Period", value: (r) => r.period },
+                { label: "Plan", value: (r) => r.plan },
+                { label: "Amount (SEK)", value: (r) => r.amount ?? 0 },
+                { label: "Discount code", value: (r) => r.discountCode ?? "" },
+                { label: "Payment", value: (r) => r.paid },
+                { label: "Status", value: (r) => r.status },
+                { label: "Notes", value: (r) => r.notes ?? "" },
+              ]}
+            />
           </div>
         }
       />

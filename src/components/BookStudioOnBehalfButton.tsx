@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { LocationSelect } from "@/components/LocationSelect";
 import { Avatar } from "@/components/ui";
 import { DatePicker } from "@/components/theme/DatePicker";
+import { useVatPrice } from "@/components/payments/Vat";
+import { formatVatRate } from "@/lib/vat";
 
 // Full 24h, 30-min steps: 00:00 → 23:30
 const TIME_SLOTS = Array.from({ length: 48 }, (_, i) => {
@@ -78,7 +80,9 @@ export function BookStudioOnBehalfButton() {
       ? Math.min(baseAmount, applied.flatAmount)
       : Math.round((baseAmount * applied.percent) / 100)
     : 0;
-  const totalAmount = baseAmount - discountAmount;
+  // VAT per the VAT master — the same total the server records.
+  const vat = useVatPrice("studio", baseAmount - discountAmount);
+  const totalAmount = vat.total;
 
   const studentName = selected ? selected.name : newName;
   const studentEmail = selected ? selected.email : newEmail;
@@ -401,6 +405,16 @@ export function BookStudioOnBehalfButton() {
                       <span>− SEK {discountAmount.toLocaleString()}</span>
                     </div>
                   )}
+{vat.mode ? (
+                    <div className="flex justify-between py-1 text-[13px]">
+                      <span className="text-muted">
+                        {vat.mode === "exclusive" ? "VAT" : "Includes VAT"} ({formatVatRate(vat.rateBp)})
+                      </span>
+                      <span className="font-semibold text-ink">
+                        {vat.mode === "exclusive" ? "+ " : ""}SEK {vat.vat.toLocaleString()}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between pt-1.5 text-sm font-bold">
                     <span>Total</span>
                     <span className="text-brand-600">SEK {totalAmount.toLocaleString()}</span>

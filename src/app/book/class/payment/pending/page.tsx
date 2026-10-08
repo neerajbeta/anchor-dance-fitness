@@ -13,6 +13,7 @@ import {
   ResultLayout,
   methodLabel,
   sek,
+  VatDetailRow,
 } from "@/components/payments/ResultParts";
 
 /** Class booking — payment started but not confirmed yet. Keeps checking by itself. */
@@ -51,6 +52,7 @@ function ClassPaymentPending() {
       <DetailCard title={`Class booking · #${result.ref}`}>
         <DetailRow k="Status" v={<span className="font-semibold text-warn">Awaiting payment confirmation</span>} />
         <DetailRow k="Paying with" v={methodLabel(result.check?.method)} />
+        <VatDetailRow check={result.check} />
         <DetailRow k="Amount" v={sek(result.check?.amount ?? 0)} strong />
       </DetailCard>
 

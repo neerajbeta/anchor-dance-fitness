@@ -18,6 +18,8 @@ export type BookingDraft = {
   eventId?: string; // set for type="workshop"/"event"
   baseAmount: number; // SEK before discount, used for the plan/pay screen
   planName?: string;
+  // GDPR permissions already ticked on the class step — don't ask twice.
+  consent?: { data: boolean; photo: boolean; video: boolean; promo: boolean };
 };
 
 export type LastBooking = {
@@ -33,6 +35,10 @@ export type LastBooking = {
   mode?: "online" | "offline";
   amount: number;
   baseAmount: number;
+  vatAmount?: number;
+  vatRateBp?: number;
+  vatMode?: string | null;
+  netAmount?: number | null;
   discountCode?: string | null;
   notes?: string | null;
 };

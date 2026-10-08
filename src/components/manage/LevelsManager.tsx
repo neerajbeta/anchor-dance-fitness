@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 
 type Level = { id: string; name: string };
 
@@ -56,7 +57,15 @@ export function LevelsManager() {
 
   return (
     <div className="card">
-      <div className="card-title">🎚️ All Levels</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="card-title">🎚️ All Levels</div>
+        <ExportExcelButton
+          rows={items}
+          filename="Levels"
+          notes={[`Class levels — ${items.length}`]}
+          columns={[{ label: "Level", value: (l) => l.name }]}
+        />
+      </div>
 
       <div className="mb-4 flex flex-col gap-2">
         {items.length === 0 && (

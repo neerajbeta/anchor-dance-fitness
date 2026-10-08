@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { FormDatePicker } from "@/components/theme/DatePicker";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 
 type Scope = "all" | "category" | "class" | "event" | "workshop" | "studio";
 
@@ -124,7 +125,25 @@ export function DiscountsManager() {
 
   return (
     <div className="card">
-      <div className="card-title">🏷️ Discount Master</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="card-title">🏷️ Discount Master</div>
+        <ExportExcelButton
+          rows={items}
+          filename="Discounts"
+          notes={[`Discount codes — ${items.length}`]}
+          columns={[
+            { label: "Code", value: (d) => d.code },
+            { label: "Name", value: (d) => d.name },
+            { label: "Type", value: (d) => (d.type === "percent" ? "Percent" : "Flat") },
+            { label: "Percent", value: (d) => d.percent ?? "" },
+            { label: "Flat (SEK)", value: (d) => d.flatAmount ?? "" },
+            { label: "Applies to", value: (d) => d.scope },
+            { label: "Target", value: (d) => d.target ?? "" },
+            { label: "Valid from", value: (d) => d.validFrom ?? "" },
+            { label: "Valid until", value: (d) => d.validUntil ?? "" },
+          ]}
+        />
+      </div>
 
       <div className="mb-4 flex flex-col gap-2">
         {items.length === 0 && (

@@ -183,6 +183,83 @@
       "when": 1789743927813,
       "tag": "0025_backfill_registration_class_id",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789751212413,
+      "tag": "0026_light_lilandra",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1789971192330,
+      "tag": "0027_outstanding_cassandra_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1789971934814,
+      "tag": "0028_oval_blindfold",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789998453080,
+      "tag": "0029_third_monster_badoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790005151473,
+      "tag": "0030_dazzling_cable",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790005383989,
+      "tag": "0031_parched_timeslip",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790006456381,
+      "tag": "0032_good_thing",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790060476156,
+      "tag": "0033_deep_network",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790583282295,
+      "tag": "0034_confused_klaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790592206074,
+      "tag": "0035_dear_black_bolt",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791383933570,
+      "tag": "0036_early_wendell_vaughn",
+      "breakpoints": true
     }
   ]
 }

@@ -6,14 +6,16 @@ import { SessionStudentNav } from "@/components/theme/shells";
 import { Stepper } from "@/components/theme/Stepper";
 import { Input, Select } from "@/components/theme/Input";
 import { DatePicker } from "@/components/theme/DatePicker";
-import { FormField, ConsentCheckbox } from "@/components/theme/form-field";
+import { FormField } from "@/components/theme/form-field";
 import { Badge } from "@/components/theme/Card";
 import { Avatar } from "@/components/theme/Avatar";
 import { LinkButton } from "@/components/theme/LinkButton";
 import { LocationSelect } from "@/components/LocationSelect";
+import { ConsentChoices } from "@/components/ConsentChoices";
+import { EMPTY_CONSENT, hasRequiredConsent } from "@/lib/consent";
 
 export default function AddMemberPage() {
-  const [consent, setConsent] = useState(false);
+  const [consent, setConsent] = useState(EMPTY_CONSENT);
   const [dob, setDob] = useState("");
 
   return (
@@ -85,11 +87,7 @@ export default function AddMemberPage() {
           </div>
 
           <div className="mt-4">
-            <ConsentCheckbox checked={consent} onChange={setConsent} title="Media Consent for this Member">
-              By adding this member, you confirm on their behalf that pictures and videos taken during
-              their sessions may be used by Anchor Fitness.{" "}
-              <span className="font-bold text-danger">* Required.</span>
-            </ConsentCheckbox>
+            <ConsentChoices value={consent} onChange={setConsent} variant="member" />
           </div>
 
           <div className="mt-2 flex items-center justify-between">
@@ -99,7 +97,10 @@ export default function AddMemberPage() {
             >
               ← Back to Portal
             </Link>
-            <LinkButton href="/book/class" className={consent ? "" : "pointer-events-none opacity-40"}>
+            <LinkButton
+              href="/book/class"
+              className={hasRequiredConsent(consent) ? "" : "pointer-events-none opacity-40"}
+            >
               Save Member &amp; Book Class →
             </LinkButton>
           </div>

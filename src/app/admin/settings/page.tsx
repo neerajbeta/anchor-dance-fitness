@@ -2,6 +2,8 @@ import { AdminShell } from "@/components/AdminShell";
 import { SectionHead } from "@/components/ui";
 import { SettingsManager } from "@/components/manage/SettingsManager";
 import { SwishCertificateCard } from "@/components/manage/SwishCertificateCard";
+import { HolidaysCard } from "@/components/manage/HolidaysCard";
+import { ZoomSettingsCard } from "@/components/manage/ZoomSettingsCard";
 
 export default function PortalSettings() {
   return (
@@ -12,6 +14,8 @@ export default function PortalSettings() {
       />
       <div className="flex max-w-2xl flex-col gap-4">
         <SettingsManager />
+        <HolidaysCard />
+        <ZoomSettingsCard />
         <SwishCertificateCard />
       </div>
     </AdminShell>

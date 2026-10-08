@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { STUDIO_LOCATIONS } from "@/lib/studioLocations";
 import { StudioCalendar } from "@/components/StudioCalendar";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -83,7 +84,26 @@ export function AdminStudioClient({ rows, blocks }: { rows: Row[]; blocks: Block
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div>
-          <div className="mb-3 text-[13px] font-bold text-ink">Upcoming Studio Bookings</div>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-[13px] font-bold text-ink">Upcoming Studio Bookings</div>
+            <ExportExcelButton
+              rows={filteredRows}
+              filename="Studio-bookings"
+              sheetName="Studio"
+              notes={[`Studio bookings${location ? ` — ${location}` : ""} · ${filteredRows.length}`]}
+              columns={[
+                { label: "Name", value: (r) => r.name },
+                { label: "Date", value: (r) => r.period ?? "" },
+                { label: "Slot", value: (r) => r.when },
+                { label: "Location", value: (r) => r.location },
+                { label: "Price (SEK)", value: (r) => r.price },
+                { label: "Discount code", value: (r) => r.discountCode ?? "" },
+                { label: "Payment", value: (r) => r.paid },
+                { label: "Status", value: (r) => r.status },
+                { label: "Notes", value: (r) => r.notes ?? "" },
+              ]}
+            />
+          </div>
           {filteredRows.length === 0 ? (
             <div className="flex flex-col items-center rounded-xl border-[1.5px] border-dashed border-line bg-white py-12 text-center shadow-card">
               <div className="text-3xl">🏛️</div>
@@ -131,7 +151,23 @@ export function AdminStudioClient({ rows, blocks }: { rows: Row[]; blocks: Block
 
         {/* Blocked slots */}
         <div>
-          <div className="mb-3 text-[13px] font-bold text-ink">🚫 Blocked Slots</div>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-[13px] font-bold text-ink">🚫 Blocked Slots</div>
+            <ExportExcelButton
+              rows={filteredBlocks}
+              filename="Studio-blocked-slots"
+              sheetName="Blocked slots"
+              notes={[`Blocked studio slots${location ? ` — ${location}` : ""} · ${filteredBlocks.length}`]}
+              columns={[
+                { label: "From date", value: (b) => b.date },
+                { label: "To date", value: (b) => b.endDate ?? b.date },
+                { label: "Start", value: (b) => String(b.startTime).slice(0, 5) },
+                { label: "End", value: (b) => String(b.endTime).slice(0, 5) },
+                { label: "Location", value: (b) => b.location },
+                { label: "Reason", value: (b) => b.reason ?? "" },
+              ]}
+            />
+          </div>
           {filteredBlocks.length === 0 ? (
             <div className="rounded-xl border-[1.5px] border-dashed border-line bg-white py-8 text-center text-[13px] text-muted shadow-card">
               No blocked slots. Use <span className="font-semibold text-grape">+ Block Slots</span>{" "}

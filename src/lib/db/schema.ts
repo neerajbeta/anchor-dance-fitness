@@ -83,10 +83,52 @@ export const users = pgTable("users", {
   country: text("country"),
   location: text("location"), // home studio
   flag: text("flag"),
+  /** Free-text notes the studio keeps on a student (set when importing, editable in Customers). */
+  notes: text("notes"),
+  // GDPR consent (see lib/consent.ts). Each permission is stored on its own so
+  // a student can allow photos but not videos, or withdraw promotional use and
+  // keep the rest. gdprConsentAt / gdprConsentVersion record when the choices
+  // were last made and to which wording.
+  //   dataConsent  — contact & booking details (required to be a customer)
+  //   photoConsent — photographs of them / their child
+  //   videoConsent — video of them / their child
+  //   promoConsent — using those photos & videos in marketing
+  // mediaConsent stays as the "any media allowed" flag older code reads.
   mediaConsent: boolean("media_consent").notNull().default(false),
+  dataConsent: boolean("data_consent").notNull().default(false),
+  photoConsent: boolean("photo_consent").notNull().default(false),
+  videoConsent: boolean("video_consent").notNull().default(false),
+  promoConsent: boolean("promo_consent").notNull().default(false),
+  gdprConsentAt: timestamp("gdpr_consent_at", { withTimezone: true }),
+  gdprConsentVersion: text("gdpr_consent_version"),
+  /** When the media permissions were last narrowed / withdrawn. */
+  mediaConsentWithdrawnAt: timestamp("media_consent_withdrawn_at", { withTimezone: true }),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  // Customer lifecycle (students only) — separate from `status`, which switches
+  // admin-panel accounts on/off. "active" | "paused" | "dropped".
+  customerStatus: text("customer_status").notNull().default("active"),
+  blacklisted: boolean("blacklisted").notNull().default(false),
+  statusReason: text("status_reason"), // reason code for the current pause/drop-off/blacklist
+  statusNote: text("status_note"),
+  statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// ───────────────────────── Customer status history ─────────────────────────
+// Every pause / drop-off / resume / blacklist change, so a returning student's
+// story stays on their original record and drop-off reasons can be analysed.
+export const customerStatusLog = pgTable("customer_status_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  action: text("action").notNull(), // "paused" | "dropped" | "resumed" | "blacklisted" | "unblacklisted"
+  fromStatus: text("from_status"),
+  toStatus: text("to_status"),
+  reasonCode: text("reason_code"),
+  note: text("note"),
+  bookingId: text("booking_id"), // set when a new booking resumed the customer
+  actorName: text("actor_name"), // admin who made the change; null when automatic
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 // ───────────────────────── Audit Logs (admin RBAC actions) ─────────────────────────
@@ -148,6 +190,20 @@ export const emailTemplates = pgTable("email_templates", {
   buttonLabel: text("button_label"),
   buttonUrl: text("button_url"),
   enabled: boolean("enabled").notNull().default(true),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// ───────────────────────── VAT master ─────────────────────────
+// One row per booking type. A missing row means the built-in default in
+// src/lib/vat.ts. Rates are stored in basis points (2500 = 25%).
+export const vatRates = pgTable("vat_rates", {
+  bookingType: text("booking_type").primaryKey(), // "class" | "workshop" | "event" | "studio"
+  rateBp: integer("rate_bp").notNull().default(0),
+  // "inclusive": the listed price already contains VAT.
+  // "exclusive": VAT is added on top of the listed price at checkout.
+  mode: text("mode").notNull().default("inclusive"),
+  active: boolean("active").notNull().default(true),
   updatedBy: text("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -345,6 +401,13 @@ export const classes = pgTable("classes", {
   price: integer("price").notNull().default(0), // SEK
   capacity: integer("capacity").notNull().default(20),
   active: boolean("active").notNull().default(true),
+  // Zoom (online classes only). Created through the Zoom API, or pasted by an
+  // admin (zoomMeetingId null). Only ever shown to students who booked the class.
+  zoomMeetingId: text("zoom_meeting_id"),
+  zoomJoinUrl: text("zoom_join_url"),
+  zoomPassword: text("zoom_password"),
+  zoomSyncedAt: timestamp("zoom_synced_at", { withTimezone: true }),
+  zoomError: text("zoom_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -398,18 +461,116 @@ export const registrations = pgTable("registrations", {
   paid: paymentStatusEnum("paid").notNull().default("onetime"),
   status: text("status").notNull(),
   statusTone: text("status_tone").notNull().default("gray"),
-  amount: integer("amount").notNull().default(0), // SEK actually charged (after discount)
+  amount: integer("amount").notNull().default(0), // SEK actually charged (after discount, incl. VAT)
+  // VAT as it was when booked (a later change to the VAT master never rewrites
+  // an old receipt). netAmount + vatAmount = amount.
+  vatRateBp: integer("vat_rate_bp").notNull().default(0),
+  vatMode: text("vat_mode"), // "inclusive" | "exclusive" | null (no VAT)
+  vatAmount: integer("vat_amount").notNull().default(0),
+  netAmount: integer("net_amount"),
   discountCode: text("discount_code"), // Discount Master code applied at checkout, if any
+  // Price before the discount and the discount taken off (SEK, before VAT) —
+  // recorded from now on so coupon reports show the exact revenue impact.
+  baseAmount: integer("base_amount"),
+  discountAmount: integer("discount_amount"),
   paymentMethod: paymentMethodEnum("payment_method"), // "stripe" | "swish" — how checkout was paid
   paymentRef: text("payment_ref"), // Stripe Checkout Session id, or Swish payment reference
   notes: text("notes"), // customer's own notes at booking, e.g. studio requirements
   eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }), // set for workshop/event bookings only
   // The class a class booking is for — used to stop the same person booking it twice.
   classId: uuid("class_id").references((): AnyPgColumn => classes.id, { onDelete: "set null" }),
+  // Promotion link the customer came through before booking online, if any.
+  promotionId: uuid("promotion_id").references((): AnyPgColumn => promotions.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 export type RegistrationRow = typeof registrations.$inferSelect;
+
+// ───────────────────────── Waitlist (full classes / workshops / events) ─────────────────────────
+// First come, first served. When a seat frees up the next person is "offered"
+// it by email and the seat is held for them until offerExpiresAt.
+export const waitlist = pgTable("waitlist", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  type: bookingTypeEnum("type").notNull(), // class | workshop | event
+  classId: uuid("class_id").references((): AnyPgColumn => classes.id, { onDelete: "cascade" }),
+  eventId: uuid("event_id").references(() => events.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  // "waiting" | "offered" | "booked" | "expired" | "removed"
+  status: text("status").notNull().default("waiting"),
+  offeredAt: timestamp("offered_at", { withTimezone: true }),
+  offerExpiresAt: timestamp("offer_expires_at", { withTimezone: true }),
+  bookingId: text("booking_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export type WaitlistRow = typeof waitlist.$inferSelect;
+
+// ───────────────────────── Bulk messages (admin announcements by email) ─────────────────────────
+export const bulkMessages = pgTable("bulk_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  channel: text("channel").notNull().default("email"),
+  audience: text("audience"), // JSON: the filters used
+  audienceLabel: text("audience_label"), // human summary, e.g. "Class: Zumba · Stockholm"
+  recipientCount: integer("recipient_count").notNull().default(0),
+  sentCount: integer("sent_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  status: text("status").notNull().default("sending"), // sending | sent | partial | failed | logged
+  error: text("error"),
+  announcementId: uuid("announcement_id"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+});
+
+// ───────────────────────── Payment reminders (unpaid bookings) ─────────────────────────
+// One row per reminder sent for a booking: step 1–3 escalate SMS → Email →
+// WhatsApp; a channel that isn't set up yet falls back to email.
+export const paymentReminders = pgTable("payment_reminders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  registrationId: text("registration_id").notNull(),
+  step: integer("step").notNull(), // 1, 2, 3
+  channel: text("channel").notNull(), // planned: sms | email | whatsapp
+  sentVia: text("sent_via"), // what actually went out (e.g. email as fallback)
+  status: text("status").notNull(), // sent | logged | failed | skipped
+  error: text("error"),
+  sentBy: text("sent_by"), // admin name, or null when automatic
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export type PaymentReminderRow = typeof paymentReminders.$inferSelect;
+
+// ───────────────────────── Invoices (one per paid booking) ─────────────────────────
+// Numbered in order (INV-2026-0001) and frozen when issued: what the customer
+// was charged, the VAT and the seller details at that moment.
+export const invoices = pgTable("invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: text("number").notNull().unique(),
+  registrationId: text("registration_id").notNull().unique(),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).defaultNow(),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  description: text("description").notNull(),
+  details: text("details"), // dates · plan · location
+  bookingType: text("booking_type").notNull(),
+  baseAmount: integer("base_amount"), // before discount, before VAT
+  discountCode: text("discount_code"),
+  discountAmount: integer("discount_amount").notNull().default(0),
+  netAmount: integer("net_amount").notNull(),
+  vatRateBp: integer("vat_rate_bp").notNull().default(0),
+  vatMode: text("vat_mode"),
+  vatAmount: integer("vat_amount").notNull().default(0),
+  total: integer("total").notNull(),
+  paymentMethod: text("payment_method"),
+  paymentRef: text("payment_ref"),
+  seller: text("seller"), // JSON snapshot of the business details printed on it
+  emailedAt: timestamp("emailed_at", { withTimezone: true }),
+});
+
+export type InvoiceRow = typeof invoices.$inferSelect;
 
 // ───────────────────────── Enquiries ("Book a Demo" leads) ─────────────────────────
 // Submitted by visitors who want info but haven't booked a specific class/event/
@@ -427,7 +588,33 @@ export const enquiries = pgTable("enquiries", {
   additionalInfo: text("additional_info"),
   consent: boolean("consent").notNull().default(false),
   status: text("status").notNull().default("new"), // "new" | "contacted" | "closed"
+  // Where it came from: "demo" (Book a Demo) or "workshop" (a question about a workshop/event).
+  kind: text("kind").notNull().default("demo"),
+  eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+  // The promotion link the person arrived through (last click, 30 days).
+  promotionId: uuid("promotion_id").references((): AnyPgColumn => promotions.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 export type EnquiryRow = typeof enquiries.$inferSelect;
+
+// ───────────────────────── Promotions (trackable campaign links) ─────────────────────────
+// Every promotion gets a link /p/<slug>. Clicks are counted, and enquiries and
+// bookings made afterwards are tagged with it so each campaign's results show.
+export const promotions = pgTable("promotions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  channel: text("channel").notNull().default("instagram"), // instagram | facebook | whatsapp | email | flyer | google | other
+  eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }), // linked workshop/event
+  landing: text("landing").notNull().default("workshops"), // workshops | class | studio | home
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  active: boolean("active").notNull().default(true),
+  clicks: integer("clicks").notNull().default(0),
+  notes: text("notes"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export type PromotionRow = typeof promotions.$inferSelect;

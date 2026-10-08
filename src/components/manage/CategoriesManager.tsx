@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 
 type Category = { id: string; name: string };
 
@@ -56,7 +57,15 @@ export function CategoriesManager() {
 
   return (
     <div className="card">
-      <div className="card-title">🏷️ All Categories</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="card-title">🏷️ All Categories</div>
+        <ExportExcelButton
+          rows={items}
+          filename="Categories"
+          notes={[`Class categories — ${items.length}`]}
+          columns={[{ label: "Category", value: (c) => c.name }]}
+        />
+      </div>
 
       <div className="mb-4 flex flex-col gap-2">
         {items.length === 0 && (

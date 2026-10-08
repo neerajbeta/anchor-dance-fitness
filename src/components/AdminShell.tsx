@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { LogoWordmark } from "./Logo";
 import { logoutAction } from "@/lib/auth/actions";
 import { usePermissions } from "@/lib/usePermissions";
+import { NotificationBell } from "./NotificationBell";
 
 type NavItem = { href: string; label: string; icon: string; primary?: boolean; permission?: string };
 const NAV: { section: string | null; items: NavItem[] }[] = [
@@ -14,6 +15,8 @@ const NAV: { section: string | null; items: NavItem[] }[] = [
     items: [
       { href: "/admin/dashboard", label: "Dashboard", icon: "📊", permission: "dashboard.view" },
       { href: "/admin/reports", label: "Reports", icon: "🏆", permission: "reports.view" },
+      { href: "/admin/revenue", label: "Revenue", icon: "💰", permission: "reports.view" },
+      { href: "/admin/coupons", label: "Coupon Usage", icon: "🎟️", permission: "discounts.view" },
     ],
   },
   {
@@ -31,16 +34,22 @@ const NAV: { section: string | null; items: NavItem[] }[] = [
     section: "Manage",
     items: [
       { href: "/admin/events", label: "Events & Workshops", icon: "🎭", permission: "events.view" },
+      { href: "/admin/capacity", label: "Batch Capacity", icon: "🪑", permission: "classes.view" },
+      { href: "/admin/trials", label: "Trial Sessions", icon: "🎯", permission: "enquiries.view" },
       { href: "/admin/book-on-behalf", label: "Book on Behalf", icon: "✏️", permission: "book_on_behalf.view" },
       { href: "/admin/studio", label: "Studio Bookings", icon: "🏛️", permission: "studio.view" },
       { href: "/admin/payments", label: "Payments", icon: "💳", permission: "payments.view" },
+      { href: "/admin/reminders", label: "Payment Reminders", icon: "🔔", permission: "payments.view" },
+      { href: "/admin/customers", label: "Customers", icon: "🧑‍🤝‍🧑", permission: "customers.view" },
       { href: "/admin/enquiries", label: "Enquiries", icon: "📨", permission: "enquiries.view" },
+      { href: "/admin/promotions", label: "Promotions", icon: "📣", permission: "enquiries.view" },
     ],
   },
   {
     section: "Comms",
     items: [
       { href: "/admin/announcements", label: "Announcements", icon: "📩", permission: "announcements.view" },
+      { href: "/admin/messages", label: "Bulk Messages", icon: "📣", permission: "announcements.view" },
       { href: "/admin/email-templates", label: "Email Templates", icon: "✉️", permission: "settings.view" },
     ],
   },
@@ -53,7 +62,10 @@ const NAV: { section: string | null; items: NavItem[] }[] = [
   },
   {
     section: "Settings",
-    items: [{ href: "/admin/settings", label: "Portal Settings", icon: "⚙️", permission: "settings.view" }],
+    items: [
+      { href: "/admin/settings", label: "Portal Settings", icon: "⚙️", permission: "settings.view" },
+      { href: "/admin/vat", label: "VAT Master", icon: "🧾", permission: "settings.view" },
+    ],
   },
 ];
 
@@ -77,12 +89,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           <span className="badge rounded bg-brand-500 text-white">ADMIN</span>
         </Link>
         <div className="flex items-center gap-3">
-          <button className="relative nav-btn">
-            🔔
-            <span className="absolute -right-0 -top-0 rounded-full bg-brand-500 px-1.5 text-[10px] font-bold text-white">
-              3
-            </span>
-          </button>
+          <NotificationBell />
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-500 text-xs font-bold text-white">
             A
           </div>

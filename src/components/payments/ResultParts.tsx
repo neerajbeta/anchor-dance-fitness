@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { SessionStudentNav } from "@/components/theme/shells";
 import { LinkButton } from "@/components/theme/LinkButton";
 import { cn } from "@/lib/cn";
+import { formatVatRate } from "@/lib/vat";
 import type { PaymentResult } from "./usePaymentResult";
 
 // Building blocks for the payment result pages. Each booking type's page
@@ -98,6 +99,40 @@ export function DetailRow({ k, v, strong }: { k: string; v: ReactNode; strong?: 
       <span className="text-copy-dim">{k}</span>
       <span className={cn("text-right text-copy", strong ? "font-bold" : "font-medium")}>{v}</span>
     </div>
+  );
+}
+
+type VatCheck = { amount: number; vatAmount?: number; vatRateBp?: number; vatMode?: string | null; netAmount?: number | null };
+
+/** The price after discount, before any VAT added on top — what a discount is measured against. */
+export function discountedPrice(check: VatCheck | null | undefined) {
+  if (!check) return 0;
+  return check.vatMode === "exclusive" ? check.netAmount ?? check.amount : check.amount;
+}
+
+/** VAT line on a receipt: "VAT (25%) + SEK 113" or "Includes VAT (25%) SEK 90"; nothing without VAT. */
+export function VatDetailRow({ check }: { check: VatCheck | null | undefined }) {
+  if (!check?.vatMode || !check.vatAmount) return null;
+  const rate = formatVatRate(check.vatRateBp ?? 0);
+  return check.vatMode === "exclusive" ? (
+    <DetailRow k={`VAT (${rate})`} v={`+ ${sek(check.vatAmount)}`} />
+  ) : (
+    <DetailRow k={`Includes VAT (${rate})`} v={sek(check.vatAmount)} />
+  );
+}
+
+/** "Invoice · Download PDF" on a paid receipt (nothing for a free booking). */
+export function InvoiceDetailRow({ check }: { check: { id: string; amount: number; state?: string } | null | undefined }) {
+  if (!check || check.amount <= 0 || (check.state && check.state !== "paid")) return null;
+  return (
+    <DetailRow
+      k="Invoice"
+      v={
+        <a href={`/api/invoices/${encodeURIComponent(check.id)}?download=1`} className="font-semibold text-accent hover:underline">
+          🧾 Download PDF
+        </a>
+      }
+    />
   );
 }
 

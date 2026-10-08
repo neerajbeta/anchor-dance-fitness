@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/auth/permissions";
-import { createEnquiry, listEnquiries, listUnconvertedSignups, DbNotConfiguredError } from "@/lib/services";
+import {
+  createEnquiry,
+  listEnquiries,
+  listUnconvertedSignups,
+  listPromotionsWithStats,
+  listEvents,
+  validPromotionId,
+  PROMO_COOKIE,
+  DbNotConfiguredError,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,10 +22,16 @@ export async function GET() {
   if (!auth.ok) return auth.response;
   try {
     const [demoLeads, signups] = await Promise.all([listEnquiries(), listUnconvertedSignups()]);
+    const [promos, evs] = await Promise.all([listPromotionsWithStats(), listEvents()]);
+    const promoName = new Map(promos.map((p) => [p.id, p.name]));
+    const eventTitle = new Map(evs.map((e) => [e.id, e.title]));
     const data = [
       ...demoLeads.map((e) => ({
         id: e.id,
-        source: "demo" as const,
+        source: e.kind === "workshop" ? ("workshop" as const) : ("demo" as const),
+        eventTitle: e.eventId ? eventTitle.get(e.eventId) ?? null : null,
+        promotionId: e.promotionId,
+        promotion: e.promotionId ? promoName.get(e.promotionId) ?? null : null,
         fullName: e.fullName,
         age: e.age,
         email: e.email,
@@ -32,6 +47,9 @@ export async function GET() {
       ...signups.map((u) => ({
         id: u.id,
         source: "signup" as const,
+        eventTitle: null,
+        promotionId: null,
+        promotion: null,
         fullName: u.name,
         age: null,
         email: u.email,
@@ -53,7 +71,8 @@ export async function GET() {
   }
 }
 
-// Public: the "Book a Demo" form submits here — no auth required.
+// Public: the "Book a Demo" form and the workshop "Ask a question" form submit
+// here — no auth required. A promotion link opened earlier is credited.
 export async function POST(req: NextRequest) {
   try {
     const b = await req.json();
@@ -63,7 +82,12 @@ export async function POST(req: NextRequest) {
     if (!b?.consent) {
       return NextResponse.json({ error: "Consent is required" }, { status: 400 });
     }
+    const kind = b.kind === "workshop" ? "workshop" : "demo";
+    const promotionId = await validPromotionId(req.cookies.get(PROMO_COOKIE)?.value);
     const row = await createEnquiry({
+      kind,
+      eventId: kind === "workshop" && typeof b.eventId === "string" ? b.eventId : null,
+      promotionId,
       fullName: b.fullName,
       age: b.age ? Number(b.age) : undefined,
       email: b.email,

@@ -9,12 +9,15 @@ import { DatePicker } from "@/components/theme/DatePicker";
 import { Button } from "@/components/theme/Button";
 import { FormField } from "@/components/theme/form-field";
 import { COUNTRIES } from "@/lib/countries";
+import { ConsentChoices } from "@/components/ConsentChoices";
+import { EMPTY_CONSENT, hasRequiredConsent } from "@/lib/consent";
 
 export function RegisterForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailTaken, setEmailTaken] = useState(false);
   const [dob, setDob] = useState("");
+  const [consent, setConsent] = useState(EMPTY_CONSENT);
   // Date of birth can't be in the future.
   const currentYear = new Date().getFullYear();
   const latestDob = new Date().toISOString().slice(0, 10);
@@ -34,6 +37,10 @@ export function RegisterForm() {
       setError("Passwords do not match");
       return;
     }
+    if (!hasRequiredConsent(consent)) {
+      setError("Please accept the consent for your contact and booking details to continue.");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch("/api/auth/register", {
@@ -48,6 +55,7 @@ export function RegisterForm() {
           country: fd.get("country"),
           email: fd.get("email"),
           password,
+          consent,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -141,6 +149,8 @@ export function RegisterForm() {
               <Input name="confirmPassword" type="password" placeholder="Re-enter password" required />
             </FormField>
           </div>
+
+          <ConsentChoices value={consent} onChange={setConsent} className="mt-2" />
 
           {error && (
             <div className="mt-1 rounded-lg border-[1.5px] border-danger/40 bg-danger/5 px-3.5 py-2.5 text-[13px] font-medium text-danger">

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { usePermissions } from "@/lib/usePermissions";
-import { INTERVAL_LABELS, INTERVAL_MONTHS, PLAN_INTERVALS, sortPlans, type Plan } from "@/lib/plans";
+import { INTERVAL_LABELS, INTERVAL_MONTHS, isTrialPlan, PLAN_INTERVALS, sortPlans, type Plan } from "@/lib/plans";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 
 export function PlansManager() {
   const { can } = usePermissions();
@@ -83,7 +84,23 @@ export function PlansManager() {
 
   return (
     <div className="card">
-      <div className="card-title">💳 All Plans</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="card-title">💳 All Plans</div>
+        <ExportExcelButton
+          rows={items}
+          filename="Plans"
+          notes={[`Plans — ${items.length}`]}
+          columns={[
+            { label: "Name", value: (p) => p.name },
+            { label: "Interval", value: (p) => INTERVAL_LABELS[p.interval] },
+            { label: "Price (SEK)", value: (p) => p.price },
+            { label: "Charged", value: (p) => (INTERVAL_MONTHS[p.interval] > 0 ? "Per month" : "Once") },
+            { label: "Trial plan", value: (p) => (isTrialPlan(p) ? "Yes" : "No") },
+            { label: "Active", value: (p) => (p.active ? "Yes" : "No") },
+            { label: "Description", value: (p) => p.description ?? "" },
+          ]}
+        />
+      </div>
 
       <div className="mb-4 flex flex-col gap-2">
         {loaded && items.length === 0 && (
@@ -111,6 +128,12 @@ export function PlansManager() {
                   {months > 0 ? " / month" : " once"}
                   {p.description ? ` · ${p.description}` : ""}
                 </div>
+                {isTrialPlan(p) && (
+                  <div className="mt-0.5 text-[11px] font-semibold text-brand-600">
+                    🎟️ This price is the trial class price — what students pay on Choose Plan, and what Book on Behalf
+                    starts a trial at.
+                  </div>
+                )}
               </div>
               <div className="flex gap-2">
                 {canEdit && (

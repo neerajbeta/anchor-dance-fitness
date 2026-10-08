@@ -56,6 +56,9 @@ export default async function PortalPage() {
       status: r.status,
       statusTone: r.statusTone,
       amount: r.amount,
+      vatRateBp: r.vatRateBp,
+      vatMode: r.vatMode,
+      vatAmount: r.vatAmount,
       discountCode: r.discountCode,
       notes: r.notes,
       bookedOn: r.createdAt

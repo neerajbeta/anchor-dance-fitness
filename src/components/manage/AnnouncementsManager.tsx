@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { FormDatePicker } from "@/components/theme/DatePicker";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 
 type Tone = "info" | "warning" | "urgent";
 type Announcement = {
@@ -85,7 +86,21 @@ export function AnnouncementsManager() {
 
   return (
     <div className="card">
-      <div className="card-title">📩 Announcements</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="card-title">📩 Announcements</div>
+        <ExportExcelButton
+          rows={items}
+          filename="Announcements"
+          notes={[`Announcements — ${items.length}`]}
+          columns={[
+            { label: "Title", value: (a) => a.title },
+            { label: "Message", value: (a) => a.message },
+            { label: "Tone", value: (a) => TONE_META[a.tone]?.label ?? a.tone },
+            { label: "Published", value: (a) => a.createdAt?.slice(0, 10) ?? "" },
+            { label: "Expires", value: (a) => a.expiresAt?.slice(0, 10) ?? "" },
+          ]}
+        />
+      </div>
 
       <div className="mb-4 flex flex-col gap-2">
         {items.length === 0 && (

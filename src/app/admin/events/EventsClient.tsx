@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { SectionHead, toneClass } from "@/components/ui";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 import { type EventItem } from "@/lib/data";
 import { LocationSelect } from "@/components/LocationSelect";
 import { DatePicker } from "@/components/theme/DatePicker";
@@ -153,6 +154,31 @@ export function EventsClient({
             ) : (
               <span className="badge badge-warn">● Sample data</span>
             )}
+            <ExportExcelButton
+              rows={filteredEvents}
+              filename="Events-and-workshops"
+              sheetName="Events"
+              notes={[`Events & Workshops — ${filteredEvents.length} of ${events.length}`]}
+              columns={[
+                { label: "Type", value: (e) => (e.kind === "workshop" ? "Workshop" : "Event") },
+                { label: "Title", value: (e) => e.title },
+                { label: "When", value: (e) => e.date },
+                { label: "Start date", value: (e) => e.eventDate ?? "" },
+                { label: "End date", value: (e) => e.endDate ?? "" },
+                { label: "Start time", value: (e) => e.startTime ?? "" },
+                { label: "End time", value: (e) => e.endTime ?? "" },
+                { label: "Mode", value: (e) => (e.mode === "online" ? "Online" : "In-person") },
+                { label: "Location", value: (e) => e.location },
+                { label: "Coach", value: (e) => e.coach },
+                { label: "Price (SEK)", value: (e) => e.price },
+                { label: "Seats total", value: (e) => e.seatsTotal },
+                { label: "Seats left", value: (e) => e.seatsLeft },
+                { label: "Booked", value: (e) => Math.max(0, e.seatsTotal - e.seatsLeft) },
+                { label: "Past", value: (e) => (e.past ? "Yes" : "No") },
+                { label: "Attended", value: (e) => e.attended ?? "" },
+                { label: "Description", value: (e) => e.desc },
+              ]}
+            />
             <button className="btn btn-primary" onClick={openCreate}>
               + Create New Event
             </button>

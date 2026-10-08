@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { COUNTRIES, flagFromCode } from "@/lib/countries";
+import { ExportExcelButton } from "@/components/ExportExcelButton";
 
 type Location = { id: string; label: string; country: string | null; flag: string | null };
 
@@ -63,7 +64,18 @@ export function LocationsManager() {
 
   return (
     <div className="card">
-      <div className="card-title">📍 All Locations</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="card-title">📍 All Locations</div>
+        <ExportExcelButton
+          rows={items}
+          filename="Locations"
+          notes={[`Studio locations — ${items.length}`]}
+          columns={[
+            { label: "Location", value: (l) => l.label },
+            { label: "Country", value: (l) => l.country ?? "" },
+          ]}
+        />
+      </div>
 
       <div className="mb-4 flex flex-col gap-2">
         {items.length === 0 && (
