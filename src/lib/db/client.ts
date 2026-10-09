@@ -2,24 +2,37 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 
-// Guarded singleton: the app must keep running even when no database is
-// configured yet (falls back to mock data). Once DATABASE_URL is set in
-// .env.local, real queries light up automatically.
-const url = process.env.DATABASE_URL;
+/**
+ * The database client, for both hosts this app runs on.
+ *
+ * **Node** (local dev, Azure): one pooled client for the whole process, as
+ * before.
+ *
+ * **Cloudflare Workers**: a Worker may not reuse a socket opened during another
+ * request, so the client is created per request and cached on that request's
+ * context. The connection string comes from the Hyperdrive binding, which pools
+ * the real connections for us.
+ *
+ * Everything downstream keeps importing `db` exactly as it did — the export is
+ * a proxy that resolves to whichever client the current request should use.
+ */
 
-export const hasDb = Boolean(url);
+type Database = ReturnType<typeof drizzle<typeof schema>>;
 
-// `prepare: false` is required when connecting through Supabase's transaction
-// pooler (port 6543). Harmless on a direct connection / Azure Postgres too.
-const globalForDb = globalThis as unknown as {
-  _pg?: ReturnType<typeof postgres>;
-};
+/** Workers sets this; Node never does. */
+const onWorkers =
+  typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
 
-// Creating the client parses the connection string — guard it so a malformed
-// URL (e.g. a password with unencoded @ ! # characters) degrades to mock data
-// instead of crashing the build/app.
-let sql: ReturnType<typeof postgres> | undefined;
-if (url) {
+export const hasDb = onWorkers || Boolean(process.env.DATABASE_URL);
+
+// ───────────────────────── Node ─────────────────────────
+
+const globalForDb = globalThis as unknown as { _pg?: ReturnType<typeof postgres>; _db?: Database };
+
+function nodeDb(): Database | undefined {
+  if (globalForDb._db) return globalForDb._db;
+  const url = process.env.DATABASE_URL;
+  if (!url) return undefined;
   try {
     // DATABASE_URL must be the SESSION pooler (port 5432 on the pooler host),
     // not the transaction pooler on 6543 — see the warning below.
@@ -30,8 +43,8 @@ if (url) {
     // for ever (postgres.js waits indefinitely by default), so the page shows a
     // real error and a retry instead. Connections are kept open (no
     // idle_timeout): re-opening one costs ~2.5s from here.
-    sql = globalForDb._pg ?? postgres(url, { prepare: false, max: 10, connect_timeout: 20 });
-    if (process.env.NODE_ENV !== "production") globalForDb._pg = sql;
+    const sql = globalForDb._pg ?? postgres(url, { prepare: false, max: 10, connect_timeout: 20 });
+    globalForDb._pg = sql;
     // Loud on purpose: on the transaction pooler this app looks broken rather
     // than slow — pages stall on "Loading…" with no error anywhere.
     if (/:6543\//.test(url)) {
@@ -40,14 +53,61 @@ if (url) {
           "Use the SESSION pooler (same host, port 5432) — on 6543 simultaneous queries stall and admin pages hang on \"Loading…\"."
       );
     }
+    const instance = drizzle(sql, { schema });
+    globalForDb._db = instance;
+    return instance;
   } catch (err) {
     console.error(
       "[db] Invalid DATABASE_URL — falling back to mock data. " +
         "Percent-encode special characters in the password (@ → %40, ! → %21, # → %23).",
       err
     );
-    sql = undefined;
+    return undefined;
   }
 }
 
-export const db = sql ? drizzle(sql, { schema }) : undefined;
+// ──────────────────────── Workers ────────────────────────
+
+/** Cached on the request's ExecutionContext, so it lives exactly one request. */
+type RequestBag = { __db?: Database };
+
+function workersDb(): Database | undefined {
+  // Imported lazily: this module must stay loadable on Node, where the
+  // Cloudflare package has nothing to attach to.
+  const { getCloudflareContext } = require("@opennextjs/cloudflare") as typeof import("@opennextjs/cloudflare");
+  const { env, ctx } = getCloudflareContext();
+  const hyperdrive = (env as { HYPERDRIVE?: { connectionString: string } }).HYPERDRIVE;
+  if (!hyperdrive) {
+    console.error("[db] No HYPERDRIVE binding — add one in wrangler.jsonc.");
+    return undefined;
+  }
+  const bag = ctx as unknown as RequestBag;
+  if (bag.__db) return bag.__db;
+  // Hyperdrive keeps the real pool, so a fresh client per request is cheap.
+  // `prepare` must stay on: Hyperdrive's pooling doesn't support the extra
+  // round-trip postgres.js makes when prepared statements are disabled.
+  const sql = postgres(hyperdrive.connectionString, { max: 5, fetch_types: false });
+  const instance = drizzle(sql, { schema });
+  bag.__db = instance;
+  return instance;
+}
+
+function current(): Database | undefined {
+  return onWorkers ? workersDb() : nodeDb();
+}
+
+/**
+ * The same `db` every caller already imports. On Node it's the one pooled
+ * client; on Workers each request gets its own, resolved on first use.
+ */
+export const db: Database | undefined = hasDb
+  ? (new Proxy({} as Database, {
+      get(_target, prop, receiver) {
+        const real = current();
+        if (!real) throw new Error("Database not configured");
+        const value = Reflect.get(real as object, prop, receiver);
+        return typeof value === "function" ? value.bind(real) : value;
+      },
+      has: (_t, prop) => Reflect.has((current() ?? {}) as object, prop),
+    }) as Database)
+  : undefined;
