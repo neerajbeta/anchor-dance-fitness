@@ -5,7 +5,8 @@ import { listEventMedia, addEventMedia, DbNotConfiguredError } from "@/lib/servi
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("events.view");
   if (!auth.ok) return auth.response;
   try {
@@ -19,7 +20,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 // Admin adds media by URL — no file-upload/object-storage pipeline exists in this app yet, so a
 // pasted link (photo or video) is the supported path for now.
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("events.edit");
   if (!auth.ok) return auth.response;
   try {

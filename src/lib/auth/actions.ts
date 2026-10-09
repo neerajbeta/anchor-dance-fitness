@@ -20,7 +20,7 @@ export async function loginAction(
   }
 
   const token = await createSessionToken(user);
-  cookies().set(SESSION_COOKIE, token, {
+  (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -33,6 +33,6 @@ export async function loginAction(
 }
 
 export async function logoutAction() {
-  cookies().delete(SESSION_COOKIE);
+  (await cookies()).delete(SESSION_COOKIE);
   redirect("/admin/login");
 }

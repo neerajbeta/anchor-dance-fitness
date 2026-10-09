@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "anchor-dance-fitness",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-25",
+  // nodejs_compat is required: this app uses node:crypto, node:zlib (Excel and
+  // PDF generation), bcryptjs and the postgres driver.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "anchor-dance-fitness"
+    }
+  ]
+  // Added once the database move is done:
+  // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<hyperdrive-id>" }],
+  // Swish needs its client certificate uploaded to Cloudflare:
+  //   wrangler mtls-certificate upload --cert swish_cert.pem --key swish.key --name swish
+  // "mtls_certificates": [{ "binding": "SWISH_CERT", "certificate_id": "<id>" }],
+  // Payment reminders + waitlist sweep (replaces the external cron caller):
+  // "triggers": { "crons": ["0 * * * *"] }
+}

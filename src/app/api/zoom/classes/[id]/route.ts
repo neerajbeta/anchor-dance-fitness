@@ -22,7 +22,8 @@ export const dynamic = "force-dynamic";
  *  { action: "manual", url, password }  → use a link pasted by an admin
  *  { action: "start" }                  → fresh host link to start the class
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("classes.edit");
   if (!auth.ok) return auth.response;
   try {

@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
 
 // Replaces a role's entire permission set. The Super Admin role is always full-access and is
 // never editable here — it stays in sync automatically as new permissions are added.
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("roles.manage_permissions");
   if (!auth.ok) return auth.response;
   try {

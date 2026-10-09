@@ -5,11 +5,11 @@ import { redirect } from "next/navigation";
 import { USER_SESSION_COOKIE, verifySessionToken } from "./session";
 
 export async function getUserSession() {
-  const token = cookies().get(USER_SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(USER_SESSION_COOKIE)?.value;
   return verifySessionToken(token);
 }
 
 export async function logoutUserAction() {
-  cookies().delete(USER_SESSION_COOKIE);
+  (await cookies()).delete(USER_SESSION_COOKIE);
   redirect("/login");
 }
