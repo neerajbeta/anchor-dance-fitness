@@ -76,17 +76,21 @@ function workersDb(): Database | undefined {
   // Cloudflare package has nothing to attach to.
   const { getCloudflareContext } = require("@opennextjs/cloudflare") as typeof import("@opennextjs/cloudflare");
   const { env, ctx } = getCloudflareContext();
-  const hyperdrive = (env as { HYPERDRIVE?: { connectionString: string } }).HYPERDRIVE;
-  if (!hyperdrive) {
-    console.error("[db] No HYPERDRIVE binding — add one in wrangler.jsonc.");
+  const vars = env as { HYPERDRIVE?: { connectionString: string }; DATABASE_URL?: string };
+  // Hyperdrive is the right way round — it pools the real connections and keeps
+  // them warm. Without it we still connect straight to the database, which
+  // works but pays a fresh handshake, so the binding is worth adding.
+  const connectionString = vars.HYPERDRIVE?.connectionString ?? vars.DATABASE_URL;
+  if (!connectionString) {
+    console.error("[db] Neither a HYPERDRIVE binding nor a DATABASE_URL secret is set on this Worker.");
     return undefined;
   }
   const bag = ctx as unknown as RequestBag;
   if (bag.__db) return bag.__db;
-  // Hyperdrive keeps the real pool, so a fresh client per request is cheap.
-  // `prepare` must stay on: Hyperdrive's pooling doesn't support the extra
-  // round-trip postgres.js makes when prepared statements are disabled.
-  const sql = postgres(hyperdrive.connectionString, { max: 5, fetch_types: false });
+  // A fresh client per request is cheap behind Hyperdrive. `prepare` must stay
+  // on: Hyperdrive's pooling doesn't support the extra round-trip postgres.js
+  // makes when prepared statements are disabled.
+  const sql = postgres(connectionString, { max: 5, fetch_types: false });
   const instance = drizzle(sql, { schema });
   bag.__db = instance;
   return instance;
