@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
  * student who made the booking and to admins who can see payments or
  * customers. Add ?download=1 to save it instead of opening it.
  */
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   try {
     const reg = await getRegistrationById(params.id);
     if (!reg) return NextResponse.json({ error: "Not found" }, { status: 404 });

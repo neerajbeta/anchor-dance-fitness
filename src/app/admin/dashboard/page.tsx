@@ -16,9 +16,10 @@ export const dynamic = "force-dynamic";
 export default async function AdminDashboard({
   searchParams,
 }: {
-  searchParams: { location?: string };
+  // Next 15 hands these to the page as a promise.
+  searchParams: Promise<{ location?: string }>;
 }) {
-  const location = searchParams.location || undefined;
+  const location = (await searchParams).location || undefined;
   const s = await getDashboardStats(location);
 
   return (

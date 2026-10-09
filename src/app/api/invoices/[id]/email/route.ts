@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Admin: email the booking's invoice (PDF attached) to the customer. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requireAnyPermission(["payments.view", "customers.edit"]);
   if (!auth.ok) return auth.response;
   try {

@@ -5,7 +5,8 @@ import { deleteEventMedia, DbNotConfiguredError } from "@/lib/services";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function DELETE(_req: NextRequest, { params }: { params: { mediaId: string } }) {
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ mediaId: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("events.edit");
   if (!auth.ok) return auth.response;
   try {

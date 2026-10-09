@@ -13,7 +13,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** The promotion's enquiries and bookings, for follow-up. */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("enquiries.view");
   if (!auth.ok) return auth.response;
   try {
@@ -23,7 +24,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("enquiries.edit");
   if (!auth.ok) return auth.response;
   try {
@@ -45,7 +47,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 /** Deleting keeps the enquiries and bookings; they just lose the promotion tag. */
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("enquiries.edit");
   if (!auth.ok) return auth.response;
   try {

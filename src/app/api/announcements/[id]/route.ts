@@ -5,7 +5,8 @@ import { updateAnnouncement, deleteAnnouncement, DbNotConfiguredError } from "@/
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("announcements.edit");
   if (!auth.ok) return auth.response;
   try {
@@ -32,7 +33,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("announcements.delete");
   if (!auth.ok) return auth.response;
   try {

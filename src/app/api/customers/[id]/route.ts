@@ -15,7 +15,8 @@ export const dynamic = "force-dynamic";
 const ACTIONS: CustomerAction[] = ["paused", "dropped", "resumed", "blacklisted", "unblacklisted"];
 
 /** A customer's profile, status history and every booking they've made. */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("customers.view");
   if (!auth.ok) return auth.response;
   try {
@@ -28,7 +29,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 /** Pause / drop / resume / blacklist — body: { action, reasonCode?, note? }. */
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("customers.edit");
   if (!auth.ok) return auth.response;
   try {

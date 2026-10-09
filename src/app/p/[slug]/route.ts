@@ -17,7 +17,8 @@ const LANDING: Record<string, string> = {
  * promotion for 30 days so an enquiry or booking made afterwards is credited
  * to it, then sends the visitor to its page.
  */
-export async function GET(req: NextRequest, { params }: { params: { slug: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
+  const params = await ctx.params;
   const origin = publicOrigin(req);
   try {
     const promo = await recordPromotionClick(params.slug);

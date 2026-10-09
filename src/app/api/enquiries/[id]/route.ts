@@ -5,7 +5,8 @@ import { updateEnquiryStatus, DbNotConfiguredError } from "@/lib/services";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("enquiries.edit");
   if (!auth.ok) return auth.response;
   try {

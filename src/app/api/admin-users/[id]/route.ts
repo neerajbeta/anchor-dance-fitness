@@ -12,7 +12,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("users.view");
   if (!auth.ok) return auth.response;
   try {
@@ -31,7 +32,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 // action). Role changes require users.manage_roles on top of users.edit; a user may never
 // change their own role or deactivate themselves, and the last active Super Admin can't be
 // demoted or deactivated this way either.
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("users.edit");
   if (!auth.ok) return auth.response;
   try {
@@ -98,7 +100,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("users.delete");
   if (!auth.ok) return auth.response;
   try {

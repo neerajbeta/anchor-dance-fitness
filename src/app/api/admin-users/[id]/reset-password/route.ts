@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 // Generates a one-time temporary password and returns it once. No transactional email is wired
 // up in this app yet, so the admin hands it to the user out of band; the user should change it
 // on next login.
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const auth = await requirePermission("users.edit");
   if (!auth.ok) return auth.response;
   try {
