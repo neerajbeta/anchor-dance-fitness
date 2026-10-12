@@ -26,7 +26,7 @@ import { Select } from "@/components/theme/Input";
 import { DatePicker } from "@/components/theme/DatePicker";
 import { Button } from "@/components/theme/Button";
 import { ConsentChoices } from "@/components/ConsentChoices";
-import { EMPTY_CONSENT, hasRequiredConsent } from "@/lib/consent";
+import { useConsentGate } from "@/lib/useConsentGate";
 import { saveDraft } from "@/lib/bookingDraft";
 import { monthsBetween } from "@/lib/plans";
 import { countSessions, isSeries, lastClassDate, parseDays, scheduleDates } from "@/lib/classSchedule";
@@ -61,7 +61,9 @@ const toIso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.
 export default function BookClassPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"online" | "offline">("online");
-  const [consent, setConsent] = useState(EMPTY_CONSENT);
+  // Asked once per person — someone who already agreed never sees it again.
+  const consentGate = useConsentGate();
+  const consent = consentGate.choices;
   const [locations, setLocations] = useState<Location[]>([]);
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [location, setLocation] = useState("");
@@ -144,7 +146,7 @@ export default function BookClassPage() {
     : null;
   const datesValid = Boolean(startDate && endDate) && !dateError;
 
-  const canContinue = Boolean(hasRequiredConsent(consent) && selected && datesValid);
+  const canContinue = Boolean(consentGate.ready && selected && datesValid);
   // What's still missing, so the disabled button explains itself.
   const missing = !selected
     ? "Pick a class to continue"
@@ -152,7 +154,7 @@ export default function BookClassPage() {
     ? "Choose your dates"
     : dateError
     ? "Fix the dates"
-    : !hasRequiredConsent(consent)
+    : !consentGate.ready
     ? "Accept the privacy & GDPR consent"
     : null;
 
@@ -344,14 +346,14 @@ export default function BookClassPage() {
           )}
         </Section>
 
-        {/* 4 · Consent */}
-        <Section icon={ShieldCheck} title="Confirm & Consent">
+        {/* 4 · Confirm — the consent block only for someone who hasn't agreed yet */}
+        <Section icon={ShieldCheck} title={consentGate.needsConsent ? "Confirm & Consent" : "Confirm"}>
           <div className="mb-4 flex items-start gap-2.5 rounded-xl bg-ok/10 px-4 py-3 text-xs text-[#1f6e4b] dark:text-emerald-300">
             <CheckCircle2 className="mt-px h-4 w-4 shrink-0" />
             Your class runs at the fixed time shown on the class. The admin team confirms your enrolment within 24
             hours.
           </div>
-          <ConsentChoices value={consent} onChange={setConsent} />
+          {consentGate.needsConsent ? <ConsentChoices value={consent} onChange={consentGate.setChoices} /> : null}
         </Section>
       </main>
 

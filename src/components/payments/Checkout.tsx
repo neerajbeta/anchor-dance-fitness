@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { saveLastBooking } from "@/lib/bookingDraft";
 import { paymentPageUrl } from "@/lib/payments/pages";
-import { EMPTY_CONSENT, hasRequiredConsent, type ConsentChoices as Choices } from "@/lib/consent";
 import { ConsentChoices } from "@/components/ConsentChoices";
+import { useConsentGate } from "@/lib/useConsentGate";
 import { SavedVatLine } from "./Vat";
 
 export type PayMethod = "stripe" | "swish";
@@ -47,18 +47,9 @@ export function useCheckout() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [swish, setSwish] = useState<SwishPending | null>(null);
-  // GDPR: asked once. Someone who already agreed to the current wording (or who
-  // ticked the box earlier in this booking) isn't asked again.
-  const [needsConsent, setNeedsConsent] = useState(false);
-  const [consent, setConsent] = useState<Choices>(EMPTY_CONSENT);
-
-  useEffect(() => {
-    fetch("/api/my-consent", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => setNeedsConsent(!j.data?.consented))
-      // Signed-out bookings, or an unreachable check — ask for consent.
-      .catch(() => setNeedsConsent(true));
-  }, []);
+  // GDPR: asked once per person, never again on a later form.
+  const gate = useConsentGate();
+  const { needsConsent, choices: consent, setChoices: setConsent } = gate;
 
   useEffect(() => {
     fetch("/api/payments/methods")
@@ -86,7 +77,7 @@ export function useCheckout() {
       setError("Enter the mobile number connected to your Swish.");
       return;
     }
-    if (needsConsent && !hasRequiredConsent(consent)) {
+    if (!gate.ready) {
       setError("Please accept the consent for your contact and booking details to continue.");
       return;
     }
@@ -201,7 +192,7 @@ export function useCheckout() {
     consent,
     setConsent,
     /** False while a required GDPR permission is still unticked. */
-    consentReady: !needsConsent || hasRequiredConsent(consent),
+    consentReady: gate.ready,
   };
 }
 
