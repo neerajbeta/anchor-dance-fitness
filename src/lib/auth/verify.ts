@@ -5,10 +5,14 @@ import { users } from "@/lib/db/schema";
 import type { SessionPayload } from "./session";
 
 /**
- * Verifies admin credentials. Order of precedence:
- *  1. If a database is configured, look up an admin user and bcrypt-compare.
- *  2. Otherwise (or if no match), fall back to demo credentials from env
- *     (ADMIN_EMAIL / ADMIN_PASSWORD), defaulting to the documented demo login.
+ * Verifies admin credentials against the admin accounts in the database.
+ *
+ * There is also a fallback login for working on the app before any admin
+ * exists, but it is deliberately hard to leave switched on: both ADMIN_EMAIL
+ * and ADMIN_PASSWORD must be set explicitly, there are no built-in defaults,
+ * and it is ignored entirely in production. It used to default to a published
+ * email and password, which meant any deployed site could be signed into by
+ * anyone who had read the docs.
  */
 export async function verifyAdminCredentials(
   email: string,
@@ -30,15 +34,19 @@ export async function verifyAdminCredentials(
         return { email: u.email, name: u.name, role: u.role };
       }
     } catch (err) {
-      console.error("[auth] DB lookup failed, trying demo fallback:", err);
+      // A database that is down must not quietly open a different way in.
+      console.error("[auth] admin lookup failed:", err);
+      return null;
     }
   }
 
-  // Demo fallback (no DB, or DB miss) — env-configurable.
-  const demoEmail = (process.env.ADMIN_EMAIL || "admin@anchorfitness.com").toLowerCase();
-  const demoPass = process.env.ADMIN_PASSWORD || "anchor-admin";
-  if (normEmail === demoEmail && password === demoPass) {
-    return { email: demoEmail, name: "Admin", role: "admin" };
+  // Development-only fallback, off unless both variables are set by hand.
+  if (process.env.NODE_ENV !== "production") {
+    const devEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const devPass = process.env.ADMIN_PASSWORD;
+    if (devEmail && devPass && normEmail === devEmail && password === devPass) {
+      return { email: devEmail, name: "Admin", role: "admin" };
+    }
   }
 
   return null;

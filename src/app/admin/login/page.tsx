@@ -64,19 +64,6 @@ export default function AdminLogin() {
           <SubmitButton />
         </form>
 
-        <div className="mt-4 rounded-lg border-[1.5px] border-warn/40 bg-warn/10 px-3 py-2.5 text-[11px] leading-relaxed text-[#7a5512]">
-          <strong>Demo build:</strong> default login is{" "}
-          <code className="rounded bg-white/70 px-1.5 py-0.5 font-bold text-ink">
-            admin@anchorfitness.com
-          </code>{" "}
-          /{" "}
-          <code className="rounded bg-white/70 px-1.5 py-0.5 font-bold text-ink">
-            anchor-admin
-          </code>
-          . Sessions use a signed httpOnly cookie; set real admins in the DB &amp; a strong{" "}
-          <code className="font-bold text-ink">AUTH_SECRET</code>.
-        </div>
-
         <div className="mt-4 text-center">
           <Link href="/login" className="text-[13px] font-semibold text-brand-600">
             ← Back to user sign in
