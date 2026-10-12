@@ -37,7 +37,25 @@ function readPem(value: string | undefined, label: string): Buffer {
   return fs.readFileSync(raw);
 }
 
-type SwishCredentials = { cert: Buffer; key: Buffer; passphrase?: string; source: "uploaded" | "env" };
+type SwishCredentials =
+  | { cert: Buffer; key: Buffer; passphrase?: string; source: "uploaded" | "env" }
+  // On Workers the certificate lives in Cloudflare, not in this process, so
+  // there is nothing to carry here — the binding presents it.
+  | { cert?: undefined; key?: undefined; passphrase?: undefined; source: "binding" };
+
+/** Workers sets this; Node never does. */
+const onWorkers = typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
+
+/** True when this Worker has the Swish certificate bound to it. */
+function hasCertBinding() {
+  if (!onWorkers) return false;
+  try {
+    const { getCloudflareContext } = require("@opennextjs/cloudflare") as typeof import("@opennextjs/cloudflare");
+    return Boolean((getCloudflareContext().env as { SWISH_CERT?: unknown }).SWISH_CERT);
+  } catch {
+    return false;
+  }
+}
 
 // The uploaded certificate is read from the DB and decrypted once, then reused
 // for a minute so a busy checkout doesn't hit the DB on every Swish call.
@@ -82,7 +100,11 @@ function envCredentials(): SwishCredentials {
 export async function swishConfig() {
   const payeeAlias = (process.env.SWISH_PAYEE_ALIAS ?? "").trim();
   if (!payeeAlias) throw new SwishNotConfiguredError("SWISH_PAYEE_ALIAS is not set");
-  const credentials = (await uploadedCredentials()) ?? envCredentials();
+  // On Workers the certificate is held by Cloudflare and presented by the
+  // binding, so nothing has to be read or decrypted here.
+  const credentials: SwishCredentials = hasCertBinding()
+    ? { source: "binding" }
+    : (await uploadedCredentials()) ?? envCredentials();
   return {
     payeeAlias,
     ...credentials,
@@ -97,7 +119,8 @@ export async function swishConfig() {
 }
 
 /** Where the active certificate comes from, without reading any secret out. */
-export async function swishCredentialSource(): Promise<"uploaded" | "env" | "none"> {
+export async function swishCredentialSource(): Promise<"uploaded" | "env" | "binding" | "none"> {
+  if (hasCertBinding()) return "binding";
   if (await uploadedCredentials()) return "uploaded";
   try {
     envCredentials();
@@ -204,6 +227,40 @@ function dashed(instructionId: string) {
 
 type SwishResponse = { status: number; headers: Record<string, string | string[] | undefined>; body: string };
 
+/**
+ * Swish requires the merchant certificate on every call. A Node server can
+ * attach it to the request itself; a Cloudflare Worker cannot, and instead
+ * presents a certificate uploaded to Cloudflare through an mTLS binding:
+ *
+ *   wrangler mtls-certificate upload --cert swish_cert.pem --key swish.key --name swish
+ *
+ * and a `mtls_certificates` entry named SWISH_CERT in wrangler.jsonc. Both
+ * paths speak to the same Swish API and return the same shape.
+ */
+async function callViaBinding(url: string, method: "GET" | "PUT", body: string | undefined): Promise<SwishResponse> {
+  const { getCloudflareContext } = require("@opennextjs/cloudflare") as typeof import("@opennextjs/cloudflare");
+  const binding = (getCloudflareContext().env as { SWISH_CERT?: { fetch: typeof fetch } }).SWISH_CERT;
+  if (!binding) {
+    throw new SwishNotConfiguredError(
+      "No SWISH_CERT binding on this Worker. Upload the merchant certificate with " +
+        "`wrangler mtls-certificate upload` and add it to wrangler.jsonc."
+    );
+  }
+  const res = await binding.fetch(url, {
+    method,
+    headers: {
+      Accept: "application/json",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body,
+  });
+  const headers: Record<string, string> = {};
+  res.headers.forEach((v, k) => {
+    headers[k] = v;
+  });
+  return { status: res.status, headers, body: await res.text() };
+}
+
 function call(
   url: string,
   method: "GET" | "PUT",
@@ -211,6 +268,7 @@ function call(
   cfg: Awaited<ReturnType<typeof swishConfig>>
 ): Promise<SwishResponse> {
   const body = payload === undefined ? undefined : JSON.stringify(payload);
+  if (cfg.source === "binding") return callViaBinding(url, method, body);
   const target = new URL(url);
   return new Promise((resolve, reject) => {
     const req = https.request(

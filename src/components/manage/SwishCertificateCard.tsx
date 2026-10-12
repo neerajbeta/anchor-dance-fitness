@@ -14,7 +14,7 @@ type Meta = {
 };
 
 type Status = {
-  source: "uploaded" | "env" | "none";
+  source: "uploaded" | "env" | "binding" | "none";
   meta: Meta | null;
   payeeAlias: string | null;
   warning?: string | null;
@@ -134,7 +134,16 @@ export function SwishCertificateCard() {
 
       {status && !meta ? (
         <div className="mb-3 rounded-lg border border-line bg-cream/50 p-3 text-[13px]">
-          {status.source === "env" ? (
+          {status.source === "binding" ? (
+            <>
+              <span className="badge badge-info">Held by Cloudflare</span>
+              <p className="mt-2 text-[12px] text-muted">
+                This site runs on Cloudflare Workers, which presents the merchant certificate itself
+                through an mTLS binding — so there is nothing to upload here. Replace it with{" "}
+                <code>wrangler mtls-certificate upload</code> and redeploy when the certificate is renewed.
+              </p>
+            </>
+          ) : status.source === "env" ? (
             <>
               <span className="badge badge-info">Using server files</span>
               <p className="mt-2 text-[12px] text-muted">

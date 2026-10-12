@@ -34,8 +34,11 @@
       "localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
     }
   ]
-  // Swish needs its client certificate uploaded to Cloudflare:
+  // Swish presents the merchant certificate through this binding, because a
+  // Worker cannot attach one to an outbound request itself. Upload it once:
   //   wrangler mtls-certificate upload --cert swish_cert.pem --key swish.key --name swish
+  // then put the id it prints here and redeploy. Until that exists, Swish
+  // payments are refused with a clear message rather than failing silently.
   // "mtls_certificates": [{ "binding": "SWISH_CERT", "certificate_id": "<id>" }],
   // Payment reminders + waitlist sweep (replaces the external cron caller):
   // "triggers": { "crons": ["0 * * * *"] }
