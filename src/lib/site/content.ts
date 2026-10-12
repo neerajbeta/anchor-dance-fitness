@@ -53,12 +53,12 @@ export const ABOUT = {
   title: ["Moves That Feel Like", "Freedom"],
   text: "At Anchor Dance, movement is celebration. Every class is crafted to let rhythm challenge your body, elevate your spirit, and awaken your energy.",
   revolution: ["This is a Revolution.", "And we invite you to be a part of it."],
-  // The looping clip in the About frame. The original was a 197 MB .mov, far
-  // too big to ship — drop a web-sized MP4 at this path to bring the motion
-  // back. Until then the poster below is what visitors see, which is why the
-  // section never looks broken.
+  // The looping clip in the About frame. The original was a 206 MB 4K .mov;
+  // this is the same clip at the size it's actually shown (1280x720, 1.3 MB).
+  // The poster is a frame from it, so the frame looks right before the video
+  // starts — or if it never does.
   video: "videos/fitness.mp4",
-  videoPoster: "images/programs/studio-group-sessionsi.webp",
+  videoPoster: "images/programs/about-video-poster.webp",
 };
 
 export const VISION =
