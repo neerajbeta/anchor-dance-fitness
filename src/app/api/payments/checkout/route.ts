@@ -109,6 +109,21 @@ export async function POST(req: NextRequest) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(slotDate) || !time) {
         return NextResponse.json({ error: "Choose a studio date and time." }, { status: 400 });
       }
+      // The studio can't be hired for a time that has already gone. Sweden runs
+      // one timezone, so the studio's own calendar day is the one that counts —
+      // not the browser's, which may be anywhere.
+      const nowInSweden = new Date(
+        new Date().toLocaleString("en-US", { timeZone: "Europe/Stockholm" })
+      );
+      const pad2 = (n: number) => String(n).padStart(2, "0");
+      const todayInSweden = `${nowInSweden.getFullYear()}-${pad2(nowInSweden.getMonth() + 1)}-${pad2(nowInSweden.getDate())}`;
+      const nowTime = `${pad2(nowInSweden.getHours())}:${pad2(nowInSweden.getMinutes())}`;
+      if (slotDate < todayInSweden || (slotDate === todayInSweden && time[1] <= nowTime)) {
+        return NextResponse.json(
+          { error: "That studio time has already passed — please pick a later slot." },
+          { status: 400 }
+        );
+      }
       const taken = await getStudioTakenSlots(String(booking.location), slotDate);
       const clash = taken.some((t) => time[1] < t.end && t.start < time[2]);
       if (clash) {

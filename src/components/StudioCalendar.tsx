@@ -42,6 +42,7 @@ export function StudioCalendar({
   selected,
   onSelect,
   initialMonth,
+  minDate,
 }: {
   blocks?: StudioBlockRange[];
   bookings?: StudioBookingMark[];
@@ -50,6 +51,10 @@ export function StudioCalendar({
   selected?: string;
   onSelect?: (dateStr: string) => void;
   initialMonth?: string; // YYYY-MM-DD — which month to open on
+  /** YYYY-MM-DD — earliest day that can be picked. Earlier days show as
+   *  unavailable. Customer booking passes today; admin screens that record a
+   *  session which already happened leave it off. */
+  minDate?: string;
 }) {
   const initial = initialMonth ? new Date(initialMonth) : new Date();
   const [viewYear, setViewYear] = useState(initial.getFullYear());
@@ -108,7 +113,10 @@ export function StudioCalendar({
       const block = dayBlocks[0];
       const isSel = selected === dateStr;
       const isToday = dateStr === todayStr;
-      const clickable = !block && !!onSelect;
+      // A day that has already gone can't be booked.
+      const tooEarly = Boolean(minDate) && dateStr < minDate!;
+      const closed = Boolean(block) || tooEarly;
+      const clickable = !closed && !!onSelect;
       const hasMarkers = dayBlocks.length > 0 || dayBookings.length > 0;
       const rowIndex = Math.floor(i / 7);
       const openUpward = rowIndex >= 4;
@@ -116,10 +124,12 @@ export function StudioCalendar({
         <div key={day} className="group relative">
           <button
             type="button"
-            disabled={!!block}
+            disabled={closed}
             onClick={() => clickable && onSelect?.(dateStr)}
             className={`min-h-[64px] w-full rounded-lg border-[1.5px] p-1.5 text-left text-xs transition-all ${
-              block
+              tooEarly
+                ? "cursor-not-allowed border-line bg-cream/60 opacity-60"
+                : block
                 ? "cursor-not-allowed border-dashed border-line bg-cream/60"
                 : isSel
                 ? "border-brand-500 bg-brand-50 ring-2 ring-brand-500/30"
@@ -128,7 +138,11 @@ export function StudioCalendar({
                 : "border-line bg-white"
             }`}
           >
-            <div className={`mb-1 text-[13px] font-bold ${isToday ? "text-brand-600" : "text-ink"}`}>
+            <div
+              className={`mb-1 text-[13px] font-bold ${
+                isToday ? "text-brand-600" : tooEarly ? "text-muted" : "text-ink"
+              }`}
+            >
               {day}
             </div>
             {dayBookings.map((b, idx) => (

@@ -109,8 +109,26 @@ export default function BookStudioPage() {
   const vat = applyVat(price - discountAmount, vatRule);
   const total = vat.total;
   const clash = startT !== "" && overlaps(taken, startT, hours * 60);
+
+  // Hours that have already gone today can't be hired either. Worked out on the
+  // client (after mount, so server rendering doesn't disagree about "now");
+  // the server checks it again before taking any money.
+  const [nowMinutes, setNowMinutes] = useState(-1);
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      setNowMinutes(d.getHours() * 60 + d.getMinutes());
+    };
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const bookingToday = selectedDate === todayIso();
+  const slotPast = (t: string) => bookingToday && nowMinutes >= 0 && toMin(t) <= nowMinutes;
+  const startPast = startT !== "" && slotPast(startT);
+
   const ready =
-    chosenPurpose !== "" && food && name.trim() !== "" && email.trim() !== "" && hours > 0 && startT !== "" && !clash && rate !== null;
+    chosenPurpose !== "" && food && name.trim() !== "" && email.trim() !== "" && hours > 0 && startT !== "" && !clash && !startPast && rate !== null;
 
   useEffect(() => {
     fetch("/api/studio/blocks")
@@ -205,6 +223,7 @@ export default function BookStudioPage() {
                 selected={selectedDate}
                 onSelect={setSelectedDate}
                 initialMonth={selectedDate}
+                minDate={todayIso()}
               />
             </div>
           </div>
@@ -225,9 +244,9 @@ export default function BookStudioPage() {
                       Select
                     </option>
                     {TIME_SLOTS.map((t) => (
-                      <option key={t} value={t} disabled={overlaps(taken, t, 30)}>
+                      <option key={t} value={t} disabled={overlaps(taken, t, 30) || slotPast(t)}>
                         {t}
-                        {overlaps(taken, t, 30) ? " — Taken" : ""}
+                        {slotPast(t) ? " — Past" : overlaps(taken, t, 30) ? " — Taken" : ""}
                       </option>
                     ))}
                   </select>
@@ -258,12 +277,16 @@ export default function BookStudioPage() {
                   value={`SEK ${applyVat(price, vatRule).total.toLocaleString()}`}
                   accent
                 />
-                {clash && (
+                {startPast ? (
+                  <div className="mt-2 text-[12px] font-semibold text-danger">
+                    ⚠️ That time has already passed today — pick a later start time.
+                  </div>
+                ) : clash ? (
                   <div className="mt-2 text-[12px] font-semibold text-danger">
                     ⚠️ This time overlaps an existing booking or blocked slot — pick another start
                     time or a shorter duration.
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
 
