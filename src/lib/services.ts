@@ -1491,7 +1491,12 @@ export async function deleteAdminUser(id: string) {
 // this app yet), returned once to the admin to hand to the user out of band.
 export async function resetAdminUserPassword(id: string) {
   const d = requireDb();
-  const tempPassword = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6).toUpperCase();
+  // Must be unguessable: Math.random() is predictable from previous outputs,
+  // which is fine for a colour but not for something that grants admin access.
+  // Ambiguous characters are left out so it can be read out loud.
+  const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(14));
+  const tempPassword = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
   const passwordHash = await bcrypt.hash(tempPassword, 10);
   await d.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, id));
   return tempPassword;
