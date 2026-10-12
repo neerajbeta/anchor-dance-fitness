@@ -18,9 +18,17 @@
       "binding": "WORKER_SELF_REFERENCE",
       "service": "anchor-dance-fitness"
     }
+  ],
+  // The database. Hyperdrive pools the connections and keeps them warm, which
+  // matters because the database is in Sydney and a cold handshake costs
+  // seconds. Connects as `hyperdrive_user` — read/write on the data, no DDL;
+  // migrations still run as `postgres` through DIRECT_URL.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "386259b84aba42e5b1d06c1361f333f9"
+    }
   ]
-  // Added once the database move is done:
-  // "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "<hyperdrive-id>" }],
   // Swish needs its client certificate uploaded to Cloudflare:
   //   wrangler mtls-certificate upload --cert swish_cert.pem --key swish.key --name swish
   // "mtls_certificates": [{ "binding": "SWISH_CERT", "certificate_id": "<id>" }],
