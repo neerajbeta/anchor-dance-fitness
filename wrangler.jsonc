@@ -33,13 +33,19 @@
       // deliberately a placeholder and holds no real credentials.
       "localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
     }
-  ]
+  ],
   // Swish presents the merchant certificate through this binding, because a
-  // Worker cannot attach one to an outbound request itself. Upload it once:
-  //   wrangler mtls-certificate upload --cert swish_cert.pem --key swish.key --name swish
-  // then put the id it prints here and redeploy. Until that exists, Swish
-  // payments are refused with a clear message rather than failing silently.
-  // "mtls_certificates": [{ "binding": "SWISH_CERT", "certificate_id": "<id>" }],
+  // Worker cannot attach one to an outbound request itself. The certificate is
+  // held by Cloudflare (uploaded with `wrangler mtls-certificate upload`), not
+  // by this repo. It is the Handelsbanken certificate for Swish number
+  // 1236584809 and expires 2031-04-20 — renewing means uploading again and
+  // changing the id here.
+  "mtls_certificates": [
+    {
+      "binding": "SWISH_CERT",
+      "certificate_id": "b86d1539-eb06-490f-b2de-d2713935456d"
+    }
+  ]
   // Payment reminders + waitlist sweep (replaces the external cron caller):
   // "triggers": { "crons": ["0 * * * *"] }
 }
