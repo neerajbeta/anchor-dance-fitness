@@ -13,6 +13,11 @@
   "observability": {
     "enabled": true
   },
+  // next/image needs this to resize and re-encode; without it every <Image>
+  // was served at its full original size ("env.IMAGES binding is not defined").
+  "images": {
+    "binding": "IMAGES"
+  },
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
