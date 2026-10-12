@@ -4,8 +4,7 @@
 
 import { claimEmailLog, finishEmailLog, getEmailTemplateOverride } from "@/lib/services";
 import { templateDef, type EmailTemplateContent, type EmailTemplateKey } from "./defaults";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
+import { readPublicAsset } from "@/lib/publicAsset";
 import {
   EMAIL_LOGO_CID,
   EMAIL_LOGO_PATH,
@@ -49,12 +48,7 @@ let logoBase64: Promise<string | null> | null = null;
 
 /** The header logo (public/email/logo.png), read once and cached. */
 function emailLogo() {
-  logoBase64 ??= readFile(path.join(process.cwd(), "public", EMAIL_LOGO_PATH))
-    .then((b) => b.toString("base64"))
-    .catch((err) => {
-      console.error("[email] logo missing — emails go out without it:", err.message);
-      return null;
-    });
+  logoBase64 ??= readPublicAsset(EMAIL_LOGO_PATH).then((b) => b?.toString("base64") ?? null);
   return logoBase64;
 }
 

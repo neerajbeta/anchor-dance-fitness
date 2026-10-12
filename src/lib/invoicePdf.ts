@@ -1,8 +1,7 @@
 // Draws an invoice as a one-page A4 PDF. Server only.
 
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import type { InvoiceRow } from "@/lib/db/schema";
+import { readPublicAsset } from "@/lib/publicAsset";
 import { A4, PdfPage } from "@/lib/pdf";
 import { formatVatRate } from "@/lib/vat";
 import { DEFAULT_INVOICE_SELLER, type InvoiceSeller } from "@/lib/services";
@@ -21,8 +20,9 @@ const date = (d: Date | null) =>
   (d ?? new Date()).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Stockholm" });
 
 let logo: Promise<Buffer | null> | null = null;
+/** The logo at the top of the invoice. Missing it costs the picture, not the invoice. */
 function loadLogo() {
-  logo ??= readFile(path.join(process.cwd(), "public", "email", "logo.png")).catch(() => null);
+  logo ??= readPublicAsset("email/logo.png");
   return logo;
 }
 
