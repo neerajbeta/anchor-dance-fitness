@@ -6,9 +6,24 @@ export const USER_SESSION_COOKIE = "af_user_session"; // student/user sessions �
 // cookie so a logged-in student is never mistaken for an admin by middleware.
 const MAX_AGE_SECONDS = 60 * 60 * 8; // 8 hours
 
-const secret = new TextEncoder().encode(
-  process.env.AUTH_SECRET || "dev-insecure-secret-change-me-in-env-local"
-);
+/**
+ * The key session cookies are signed with.
+ *
+ * There is a fixed fallback so a fresh checkout runs without any setup, but it
+ * is written in this file — anyone who can read the source could mint an admin
+ * cookie with it. So in production AUTH_SECRET must be set, and a deployment
+ * that forgets it fails to sign or verify anything rather than quietly trusting
+ * a secret that is not secret. Read on each call, not at module load, so the
+ * failure is a handled error on one request instead of a dead Worker.
+ */
+function signingKey(): Uint8Array {
+  const configured = (process.env.AUTH_SECRET ?? "").trim();
+  if (configured) return new TextEncoder().encode(configured);
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_SECRET is not set — refusing to sign sessions with the built-in development key.");
+  }
+  return new TextEncoder().encode("dev-insecure-secret-change-me-in-env-local");
+}
 
 export type SessionPayload = {
   email: string;
@@ -21,7 +36,7 @@ export async function createSessionToken(payload: SessionPayload): Promise<strin
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${MAX_AGE_SECONDS}s`)
-    .sign(secret);
+    .sign(signingKey());
 }
 
 export async function verifySessionToken(
@@ -29,7 +44,7 @@ export async function verifySessionToken(
 ): Promise<SessionPayload | null> {
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret);
+    const { payload } = await jwtVerify(token, signingKey());
     return {
       email: String(payload.email ?? ""),
       name: String(payload.name ?? ""),
