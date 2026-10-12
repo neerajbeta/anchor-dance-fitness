@@ -26,7 +26,12 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "386259b84aba42e5b1d06c1361f333f9"
+      "id": "386259b84aba42e5b1d06c1361f333f9",
+      // Only ever used when the bindings are emulated locally — `wrangler
+      // deploy` builds that emulated env before it uploads, and refuses to
+      // start without this. It is never connected to in production, so it is
+      // deliberately a placeholder and holds no real credentials.
+      "localConnectionString": "postgresql://postgres:postgres@localhost:5432/postgres"
     }
   ]
   // Swish needs its client certificate uploaded to Cloudflare:
