@@ -1,11 +1,11 @@
 // Content of the public website (moved from the old HTML site at
 // anchorsports.se/dance-fitness). Edit text, prices and schedules here.
 //
-// Images: the originals still live on anchorsports.se. Copy the old site's
-// `assets` folder to `public/site/assets` and set
-// NEXT_PUBLIC_SITE_ASSETS_URL="/site/assets" to serve them from this app instead.
+// Images are served by this app from `public/site/assets` — nothing depends on
+// the old anchorsports.se hosting any more. NEXT_PUBLIC_SITE_ASSETS_URL can
+// still point them somewhere else (a CDN, say), but it isn't needed.
 
-const ASSETS = (process.env.NEXT_PUBLIC_SITE_ASSETS_URL || "https://anchorsports.se/dance-fitness/assets").replace(/\/$/, "");
+const ASSETS = (process.env.NEXT_PUBLIC_SITE_ASSETS_URL || "/site/assets").replace(/\/$/, "");
 
 /** URL of an asset from the old site's `assets` folder (path as it was there). */
 export const asset = (path: string) => `${ASSETS}/${path.split("/").map(encodeURIComponent).join("/")}`;
@@ -53,7 +53,12 @@ export const ABOUT = {
   title: ["Moves That Feel Like", "Freedom"],
   text: "At Anchor Dance, movement is celebration. Every class is crafted to let rhythm challenge your body, elevate your spirit, and awaken your energy.",
   revolution: ["This is a Revolution.", "And we invite you to be a part of it."],
-  video: "videos/fitness.mov",
+  // The looping clip in the About frame. The original was a 197 MB .mov, far
+  // too big to ship — drop a web-sized MP4 at this path to bring the motion
+  // back. Until then the poster below is what visitors see, which is why the
+  // section never looks broken.
+  video: "videos/fitness.mp4",
+  videoPoster: "images/programs/studio-group-sessionsi.webp",
 };
 
 export const VISION =

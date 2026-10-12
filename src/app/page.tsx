@@ -103,7 +103,17 @@ export default function Home() {
             </div>
             {/* 456px rounded frame with a light brand tint over the video, as on the original. */}
             <div className="relative mx-auto w-full max-w-[456px] overflow-hidden rounded-lg">
-              <video autoPlay muted loop playsInline preload="metadata" className="block h-auto w-full object-cover min-[992px]:h-[400px]">
+              {/* The poster carries the frame on its own, so a missing or
+                  still-loading clip never leaves an empty black box. */}
+              <video
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                poster={asset(ABOUT.videoPoster)}
+                className="block h-auto w-full object-cover min-[992px]:h-[400px]"
+              >
                 <source src={asset(ABOUT.video)} type="video/mp4" />
               </video>
               <div
