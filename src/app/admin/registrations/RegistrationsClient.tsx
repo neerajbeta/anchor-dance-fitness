@@ -60,6 +60,22 @@ export function RegistrationsClient({
     });
   }, [rows, bookingType, location, category, status, mode, q]);
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  // Narrowing the filters can leave the current page past the end of the list.
+  useEffect(() => {
+    setPage((p) => Math.min(p, totalPages));
+  }, [totalPages]);
+  // Any change to the filters starts again from the first page.
+  useEffect(() => {
+    setPage(1);
+  }, [bookingType, location, category, status, mode, q]);
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  // Window the page numbers so hundreds of bookings don't produce hundreds of buttons.
+  const firstShown = Math.max(1, Math.min(page - 2, totalPages - 4));
+  const pageNumbers = Array.from({ length: Math.min(5, totalPages) }, (_, i) => firstShown + i);
+
   return (
     <AdminShell>
       <SectionHead
@@ -196,7 +212,7 @@ export function RegistrationsClient({
                   </td>
                 </tr>
               )}
-              {filtered.map((r) => (
+              {pageRows.map((r) => (
                 <tr key={r.id}>
                   <td className="text-[11px] text-muted">{r.id}</td>
                   <td>
@@ -290,15 +306,48 @@ export function RegistrationsClient({
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-[13px] text-muted">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[13px] text-muted">
         <span>
-          Showing {filtered.length} of {rows.length} registrations
+          {filtered.length === 0
+            ? "No registrations match these filters"
+            : `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, filtered.length)} of ${filtered.length}${
+                filtered.length === rows.length ? "" : ` (filtered from ${rows.length})`
+              }`}
         </span>
-        <div className="flex gap-2">
-          <button className="btn btn-ghost btn-sm">← Prev</button>
-          <button className="btn btn-primary btn-sm">1</button>
-          <button className="btn btn-ghost btn-sm">2</button>
-          <button className="btn btn-ghost btn-sm">Next →</button>
+        <div className="flex items-center gap-2">
+          <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            ← Prev
+          </button>
+          {pageNumbers.map((p) => (
+            <button
+              key={p}
+              className={`btn btn-sm ${p === page ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setPage(p)}
+            >
+              {p}
+            </button>
+          ))}
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next →
+          </button>
+          <select
+            className="field w-auto py-1 text-[12px]"
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+          >
+            {[25, 50, 100, 200].map((n) => (
+              <option key={n} value={n}>
+                {n} / page
+              </option>
+            ))}
+          </select>
         </div>
       </div>
     </AdminShell>
